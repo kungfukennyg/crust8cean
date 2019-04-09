@@ -1,5 +1,6 @@
 use core::fmt;
 use rand::Rng;
+use std::num::Wrapping;
 
 const MEMORY_SIZE: u16 = 4096;
 
@@ -77,6 +78,10 @@ impl Cpu {
 
     fn get_register_value(&self, index: u16) -> u8 {
         self.registers[index as usize]
+    }
+
+    fn set_carry_flag(&mut self, value: u8) {
+        self.registers[0x0F] = value;
     }
 
     fn emulate_cycle(&mut self) {
@@ -158,38 +163,144 @@ impl Cpu {
                 self.registers[register as usize] += value;
             },
             0x08 => {
-                // 8xy0 - LD Vx, Vy
-                // Set Vx to value of Vy
+                match instruction & 0x00F {
+                    // 8xy0 - LD Vx, Vy
+                    // Set Vx to value of Vy
+                    0x00 => {
+                        let index_x = instruction & 0x0F00 >> 8;
+                        let y = instruction & 0x00F0 >> 4;
+                        let y = self.get_register_value(y);
 
-                // 8xy1 - OR Vx, Vy
-                // Set Vx = Vx OR Vy.
+                        self.registers[index_x as usize] = y;
+                    },
+                    // 8xy1 - OR Vx, Vy
+                    // Set Vx = Vx OR Vy.
+                    0x01 => {
+                        let index_x = instruction & 0x0F00 >> 8;
+                        let y = instruction & 0x00F0 >> 4;
+                        let x = self.get_register_value(index_x);
+                        let y = self.get_register_value(y);
 
-                // 8xy2 - AND Vx, Vy
-                // Set Vx = Vx AND Vy.
+                        self.registers[index_x as usize] = x | y;
+                    },
+                    // 8xy2 - AND Vx, Vy
+                    // Set Vx = Vx AND Vy.
+                    0x02 => {
+                        let index_x = instruction & 0x0F00 >> 8;
+                        let y = instruction & 0x00F0 >> 4;
+                        let x = self.get_register_value(index_x);
+                        let y = self.get_register_value(y);
 
-                // 8xy3 - XOR Vx, Vy
-                // Set Vx = Vx XOR Vy.
+                        self.registers[index_x as usize] = x & y;
+                    },
+                    // 8xy3 - XOR Vx, Vy
+                    // Set Vx = Vx XOR Vy.
+                    0x03 => {
+                        let index_x = instruction & 0x0F00 >> 8;
+                        let y = instruction & 0x00F0 >> 4;
+                        let x = self.get_register_value(index_x);
+                        let y = self.get_register_value(y);
 
-                // 8xy4 - ADD Vx, Vy
-                // Set Vx = Vx + Vy, set VF = carry.
+                        self.registers[index_x as usize] = x ^ y;
+                    },
+                    // 8xy4 - ADD Vx, Vy
+                    // Set Vx = Vx + Vy, set VF = carry.
+                    0x04 => {
+                        let index_x = instruction & 0x0F00 >> 8;
+                        let y = instruction & 0x00F0 >> 4;
+                        let x = self.get_register_value(index_x);
+                        let y = self.get_register_value(y);
 
-                // 8xy5 - SUB Vx, Vy
-                // Set Vx = Vx - Vy, set VF = NOT borrow.
+                        let result = (Wrapping(x as u16) + Wrapping(y as u16)).0;
+                        if result > 255 {
+                            self.set_carry_flag(1);
+                        } else {
+                            self.set_carry_flag(0);
+                        }
 
-                // 8xy6 - SHR Vx {, Vy}
-                // Set Vx = Vx SHR 1.
+                        self.registers[index_x as usize] = (result & 0xFFFF) as u8;
+                    },
+                    // 8xy5 - SUB Vx, Vy
+                    // Set Vx = Vx - Vy, set VF = NOT borrow.
+                    0x05 => {
+                        let index_x = instruction & 0x0F00 >> 8;
+                        let y = instruction & 0x00F0 >> 4;
+                        let x = self.get_register_value(index_x);
+                        let y = self.get_register_value(y);
 
-                // 8xy7 - SUBN Vx, Vy
-                // Set Vx = Vy - Vx, set VF = NOT borrow.
+                        if x > y {
+                            self.set_carry_flag(1);
+                        } else {
+                            self.set_carry_flag(0);
+                        }
 
-                // 8xyE - SHL Vx {, Vy}
-                // Set Vx = Vx SHL 1.
+                        self.registers[index_x as usize] = x - y;
+                    },
+                    // 8xy6 - SHR Vx {, Vy}
+                    // Set Vx = Vx SHR 1.
+                    0x06 => {
+                        let index_x = instruction & 0x0F00 >> 8;
+                        let y = instruction & 0x00F0 >> 4;
+                        let x = self.get_register_value(index_x);
+                        let y = self.get_register_value(y);
+
+                        if x & 0x0F == 0x01 {
+                            self.set_carry_flag(1);
+                        } else {
+                            self.set_carry_flag(0);
+                        }
+
+                        self.registers[index_x as usize] = x / 2;
+                    },
+                    // 8xy7 - SUBN Vx, Vy
+                    // Set Vx = Vy - Vx, set VF = NOT borrow.
+                    0x07 => {
+                        let index_x = instruction & 0x0F00 >> 8;
+                        let y = instruction & 0x00F0 >> 4;
+                        let x = self.get_register_value(index_x);
+                        let y = self.get_register_value(y);
+
+                        if y > x {
+                            self.set_carry_flag(1);
+                        } else {
+                            self.set_carry_flag(0);
+                        }
+
+                        self.registers[index_x as usize] = y- x;
+                    },
+                    // 8xyE - SHL Vx {, Vy}
+                    // Set Vx = Vx SHL 1.
+                    0x08 => {
+                        let index_x = instruction & 0x0F00 >> 8;
+                        let y = instruction & 0x00F0 >> 4;
+                        let x = self.get_register_value(index_x);
+                        let y = self.get_register_value(y);
+
+                        if x & 0xF0 == 0x01 {
+                            self.set_carry_flag(1);
+                        } else {
+                            self.set_carry_flag(0);
+                        }
+
+                        self.registers[index_x as usize] = x * 2;
+                    },
+                    _ => panic!("unreachable")
+                }
+
+
             }
 
             // 9xy0 - SNE Vx, Vy
             // Skip next instruction if Vx != Vy
             0x09 => {
+                let reg_x = instruction & 0x0F00 >> 8;
+                let reg_y = instruction & 0x00F0 >> 4;
+                let reg_x = self.get_register_value(reg_x);
+                let reg_y = self.get_register_value(reg_y);
 
+                if reg_x != reg_y {
+                    self.program_counter += 2;
+                }
             },
 
             // Annn - LD I, addr
@@ -225,7 +336,10 @@ impl Cpu {
                 // Skip next instruction if key with the value of Vx is pressed.
             },
             0x0F => {
-
+                // Fx07 - LD Vx, DT
+                // Set Vx = delay timer value.
+                let register = instruction & 0x0F00 >> 8;
+                self.registers[register as usize] = self.delay_timer;
             },
             _ => panic!("Unrecognized opcode {:x} in instruction {:x}", opcode, instruction)
         }
