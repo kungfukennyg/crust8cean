@@ -364,8 +364,20 @@ impl Cpu {
                 self.write_to_screen(x, y, sprite);
             },
             0x0E => {
-                // Ex9E - SKP Vx
-                // Skip next instruction if key with the value of Vx is pressed.
+
+                match instruction & 0x00FF {
+                    // Ex9E - SKP Vx
+                    // Skip next instruction if key with the value of Vx is pressed.
+                    0x9E => {
+
+                    },
+                    // ExA1 - SKNP Vx
+                    // Skip next instruction if key with the value of Vx is not pressed.
+                    0xA1 => {
+
+                    },
+                    _ => panic!("unreachable")
+                }
             },
             0x0F => {
                 // Fx07 - LD Vx, DT
@@ -377,6 +389,8 @@ impl Cpu {
                         let x = instruction & 0x0F00 >> 4;
                         self.registers[x as usize] = self.delay_timer;
                     },
+                    // Fx0A - LD Vx, K
+                    // Wait for a key press, store the value of the key in Vx.
                     0x0A => {
 
                     },
