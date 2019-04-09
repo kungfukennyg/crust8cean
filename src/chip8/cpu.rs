@@ -3,6 +3,9 @@ use rand::Rng;
 use std::num::Wrapping;
 
 const MEMORY_SIZE: u16 = 4096;
+const SCREEN_WIDTH: u8 = 64;
+const SCREEN_HEIGHT: u8 = 32;
+const SCREEN_SIZE: u16 = SCREEN_WIDTH as u16 * SCREEN_HEIGHT as u16;
 
 pub struct Cpu {
     // memory
@@ -20,6 +23,9 @@ pub struct Cpu {
     // timers
     delay_timer: u8,
     sound_timer: u8,
+
+    // screen
+    screen: [u8; SCREEN_SIZE as usize]
 }
 
 impl Cpu {
@@ -32,7 +38,8 @@ impl Cpu {
             stack: [0; 16],
             stack_pointer: 0,
             delay_timer: 0,
-            sound_timer: 0
+            sound_timer: 0,
+            screen: [0; SCREEN_SIZE as usize]
         }
     }
 
@@ -84,15 +91,31 @@ impl Cpu {
         self.registers[0x0F] = value;
     }
 
+    fn write_to_screen(&mut self, x: u8, y:u8, values: Vec<u8>) {
+        // TODO wrap around
+        let pos = x * SCREEN_WIDTH + y / SCREEN_HEIGHT;
+        let prev = self.screen[pos as usize];
+        for (_i, val) in values.iter().enumerate() {
+            let cur = self.screen[pos as usize];
+            self.screen[pos as usize] = cur ^ val;
+        }
+
+        if prev != self.screen[pos as usize] {
+            self.set_carry_flag(1);
+        } else {
+            self.set_carry_flag(0);
+        }
+    }
+
     fn emulate_cycle(&mut self) {
         let pc = self.program_counter;
 
-        // the full 16 bytes of an instruction, including operands
+        // the full 16 bits of an instruction, including operands
         let instruction = self.read_word(pc);
         self.program_counter += 2;
 
-        // opcodes are stored in the first 2 bytes of an instruction, big endian
-        let opcode = instruction & 0xF000;
+        // opcodes are stored in the first 2 bits of an instruction, big endian
+        let opcode = instruction & 0xF000 >> 6;
         match opcode {
             // 0nnn - SYS addr
             // Jump to routine at nnn
@@ -129,7 +152,7 @@ impl Cpu {
             // 4xkk - SNE Vx, byte
             // Skip next instruction if Vx != kk
             0x03 | 0x04 => {
-                let register = instruction & 0x0F00 >> 8;
+                let register = instruction & 0x0F00 >> 4;
                 let register = self.get_register_value(register) as u16;
                 let cmp = instruction & 0x00FF;
                 if opcode == 0x03 && register == cmp || opcode == 0x04 && register != cmp {
@@ -139,8 +162,8 @@ impl Cpu {
             // 5xy0 - SE Vx, Vy
             // Skip next instruction if Vx = Vy
             0x05 => {
-                let register_x = instruction & 0x0F00 >> 8;
-                let register_y = instruction & 0x00F0 >> 4;
+                let register_x = instruction & 0x0F00 >> 4;
+                let register_y = instruction & 0x00F0 >> 2;
                 let register_x = self.get_register_value(register_x);
                 let register_y = self.get_register_value(register_y);
 
@@ -151,14 +174,14 @@ impl Cpu {
             // 6xkk - LD Vx, byte
             // Set Vx to value kk
             0x06 => {
-                let register = instruction & 0x0F00 >> 8;
+                let register = instruction & 0x0F00 >> 4;
                 let value = (instruction & 0x00FF) as u8;
                 self.registers[register as usize] = value;
             },
             // 7xkk ADD Vx, byte
             // Set Vx = Vx + kk
             0x07 => {
-                let register = instruction & 0x0F00 >> 8;
+                let register = instruction & 0x0F00 >> 4;
                 let value = (instruction & 0x00FF) as u8;
                 self.registers[register as usize] += value;
             },
@@ -167,8 +190,8 @@ impl Cpu {
                     // 8xy0 - LD Vx, Vy
                     // Set Vx to value of Vy
                     0x00 => {
-                        let index_x = instruction & 0x0F00 >> 8;
-                        let y = instruction & 0x00F0 >> 4;
+                        let index_x = instruction & 0x0F00 >> 4;
+                        let y = instruction & 0x00F0 >> 2;
                         let y = self.get_register_value(y);
 
                         self.registers[index_x as usize] = y;
@@ -176,8 +199,8 @@ impl Cpu {
                     // 8xy1 - OR Vx, Vy
                     // Set Vx = Vx OR Vy.
                     0x01 => {
-                        let index_x = instruction & 0x0F00 >> 8;
-                        let y = instruction & 0x00F0 >> 4;
+                        let index_x = instruction & 0x0F00 >> 4;
+                        let y = instruction & 0x00F0 >> 2;
                         let x = self.get_register_value(index_x);
                         let y = self.get_register_value(y);
 
@@ -186,8 +209,8 @@ impl Cpu {
                     // 8xy2 - AND Vx, Vy
                     // Set Vx = Vx AND Vy.
                     0x02 => {
-                        let index_x = instruction & 0x0F00 >> 8;
-                        let y = instruction & 0x00F0 >> 4;
+                        let index_x = instruction & 0x0F00 >> 4;
+                        let y = instruction & 0x00F0 >> 2;
                         let x = self.get_register_value(index_x);
                         let y = self.get_register_value(y);
 
@@ -196,8 +219,8 @@ impl Cpu {
                     // 8xy3 - XOR Vx, Vy
                     // Set Vx = Vx XOR Vy.
                     0x03 => {
-                        let index_x = instruction & 0x0F00 >> 8;
-                        let y = instruction & 0x00F0 >> 4;
+                        let index_x = instruction & 0x0F00 >> 4;
+                        let y = instruction & 0x00F0 >> 2;
                         let x = self.get_register_value(index_x);
                         let y = self.get_register_value(y);
 
@@ -206,8 +229,8 @@ impl Cpu {
                     // 8xy4 - ADD Vx, Vy
                     // Set Vx = Vx + Vy, set VF = carry.
                     0x04 => {
-                        let index_x = instruction & 0x0F00 >> 8;
-                        let y = instruction & 0x00F0 >> 4;
+                        let index_x = instruction & 0x0F00 >> 4;
+                        let y = instruction & 0x00F0 >> 2;
                         let x = self.get_register_value(index_x);
                         let y = self.get_register_value(y);
 
@@ -223,8 +246,8 @@ impl Cpu {
                     // 8xy5 - SUB Vx, Vy
                     // Set Vx = Vx - Vy, set VF = NOT borrow.
                     0x05 => {
-                        let index_x = instruction & 0x0F00 >> 8;
-                        let y = instruction & 0x00F0 >> 4;
+                        let index_x = instruction & 0x0F00 >> 4;
+                        let y = instruction & 0x00F0 >> 2;
                         let x = self.get_register_value(index_x);
                         let y = self.get_register_value(y);
 
@@ -239,10 +262,8 @@ impl Cpu {
                     // 8xy6 - SHR Vx {, Vy}
                     // Set Vx = Vx SHR 1.
                     0x06 => {
-                        let index_x = instruction & 0x0F00 >> 8;
-                        let y = instruction & 0x00F0 >> 4;
+                        let index_x = instruction & 0x0F00 >> 4;
                         let x = self.get_register_value(index_x);
-                        let y = self.get_register_value(y);
 
                         if x & 0x0F == 0x01 {
                             self.set_carry_flag(1);
@@ -255,8 +276,8 @@ impl Cpu {
                     // 8xy7 - SUBN Vx, Vy
                     // Set Vx = Vy - Vx, set VF = NOT borrow.
                     0x07 => {
-                        let index_x = instruction & 0x0F00 >> 8;
-                        let y = instruction & 0x00F0 >> 4;
+                        let index_x = instruction & 0x0F00 >> 4;
+                        let y = instruction & 0x00F0 >> 2;
                         let x = self.get_register_value(index_x);
                         let y = self.get_register_value(y);
 
@@ -271,10 +292,8 @@ impl Cpu {
                     // 8xyE - SHL Vx {, Vy}
                     // Set Vx = Vx SHL 1.
                     0x08 => {
-                        let index_x = instruction & 0x0F00 >> 8;
-                        let y = instruction & 0x00F0 >> 4;
+                        let index_x = instruction & 0x0F00 >> 4;
                         let x = self.get_register_value(index_x);
-                        let y = self.get_register_value(y);
 
                         if x & 0xF0 == 0x01 {
                             self.set_carry_flag(1);
@@ -293,8 +312,8 @@ impl Cpu {
             // 9xy0 - SNE Vx, Vy
             // Skip next instruction if Vx != Vy
             0x09 => {
-                let reg_x = instruction & 0x0F00 >> 8;
-                let reg_y = instruction & 0x00F0 >> 4;
+                let reg_x = instruction & 0x0F00 >> 4;
+                let reg_y = instruction & 0x00F0 >> 2;
                 let reg_x = self.get_register_value(reg_x);
                 let reg_y = self.get_register_value(reg_y);
 
@@ -320,7 +339,7 @@ impl Cpu {
             // Cxkk - RND Vx, byte
             // Set Vx = random byte (0-255) AND kk
             0x0C => {
-                let register = instruction & 0x0F00 >> 8;
+                let register = instruction & 0x0F00 >> 4;
                 let rng = rand::thread_rng().gen_range(0, 256) as u8;
                 let value = (instruction & 0x00FF) as u8;
 
@@ -329,7 +348,20 @@ impl Cpu {
             // Dxyn - DRW Vx, Vy, nibble
             // Display n-byte sprite starting at memory location I at (Vx, Vy), set VF = collision
             0x0D => {
+                let index_x = instruction & 0x0F00 >> 4;
+                let index_y = instruction & 0x00F0 >> 2;
+                let bytes_to_read = instruction & 0x000F;
 
+                let mut sprite = Vec::new();
+                for x in 0..bytes_to_read {
+                    let address = self.i + x;
+                    sprite.push(self.memory[address as usize]);
+                }
+
+                let x = self.get_register_value(index_x);
+                let y = self.get_register_value(index_y);
+
+                self.write_to_screen(x, y, sprite);
             },
             0x0E => {
                 // Ex9E - SKP Vx
@@ -338,7 +370,66 @@ impl Cpu {
             0x0F => {
                 // Fx07 - LD Vx, DT
                 // Set Vx = delay timer value.
-                let register = instruction & 0x0F00 >> 8;
+                match instruction & 0x00FF {
+                    // Fx07 - LD Vx, DT
+                    // Set Vx = delay timer value.
+                    0x07 => {
+                        let x = instruction & 0x0F00 >> 4;
+                        self.registers[x as usize] = self.delay_timer;
+                    },
+                    0x0A => {
+
+                    },
+                    // Fx15 - LD DT, Vx
+                    // Set delay timer = Vx.
+                    0x15 => {
+                        let x = instruction & 0x0F00 >> 4;
+                        self.delay_timer = self.registers[x as usize];
+                    },
+                    // Fx18 - LD ST, Vx
+                    // Set sound timer = Vx.
+                    0x18 => {
+                        let x = instruction & 0x0F00 >> 4;
+                        self.sound_timer = self.registers[x as usize];
+                    },
+                    // Fx1E - ADD I, Vx
+                    // Set I = I + Vx.
+                    0x1E => {
+                        let x = instruction & 0x0F00 >> 4;
+                        self.i = (Wrapping(self.i) + Wrapping(x)).0;
+                    },
+                    // Fx29 - LD F, Vx
+                    // Set I = location of sprite for digit Vx.
+                    0x29 => {
+
+                    },
+                    // Fx33 - LD B, Vx
+                    // Store BCD representation of Vx in memory locations I, I+1, and I+2.
+                    0x33 => {
+
+                    },
+                    // Fx55 - LD [I], Vx
+                    // Store registers V0 through Vx in memory starting at location I.
+                    0x55 => {
+                        let range = instruction & 0x0F00 >> 4;
+                        for x in 0..range {
+                            let val = self.registers[x as usize];
+                            self.memory[(self.i + x) as usize] = val;
+                        }
+                    },
+                    // Fx65 - LD Vx, [I]
+                    // Read registers V0 through Vx from memory starting at location I.
+                    0x65 => {
+                        let range = instruction & 0x0F00 >> 4;
+                        for x in 0..range {
+                            let val = self.memory[(self.i + x) as usize];
+                            self.registers[x as usize] = val;
+                        }
+                    },
+                    _ => panic!("Unrecognized subcode in instruction {:x}", instruction)
+                }
+
+                let register = instruction & 0x0F00 >> 4;
                 self.registers[register as usize] = self.delay_timer;
             },
             _ => panic!("Unrecognized opcode {:x} in instruction {:x}", opcode, instruction)
