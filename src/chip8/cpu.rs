@@ -7,6 +7,111 @@ const SCREEN_WIDTH: u8 = 64;
 const SCREEN_HEIGHT: u8 = 32;
 const SCREEN_SIZE: u16 = SCREEN_WIDTH as u16 * SCREEN_HEIGHT as u16;
 
+const FONT_BASE: u8 = 0;
+// 5 bytes by 16 characters
+const FONT_SIZE: u8 = 5 * 16;
+const PROGRAM_COUNTER_START_ADDR: u16 = 0x200;
+const STACK_POINTER_START_ADDR: u16 = 0xFA0;
+
+// sprites
+const FONT_SPRITES: [u8; FONT_SIZE as usize] = [
+                            // 0
+                            0b11110000,
+                            0b10010000,
+                            0b10010000,
+                            0b10010000,
+                            0b11110000,
+                            // 1
+                            0b00100000,
+                            0b01100000,
+                            0b00100000,
+                            0b00000000,
+                            0b01100000,
+                            // 2
+                            0b11110000,
+                            0b00010000,
+                            0b11110000,
+                            0b10000000,
+                            0b11110000,
+                            // 3
+                            0b11110000,
+                            0b00010000,
+                            0b11110000,
+                            0b00010000,
+                            0b11110000,
+                            // 4
+                            0b10100000,
+                            0b10100000,
+                            0b11100000,
+                            0b00100000,
+                            0b00000000,
+                            // 5
+                            0b11110000,
+                            0b10000000,
+                            0b11110000,
+                            0b00010000,
+                            0b11110000,
+                            // 6
+                            0b11110000,
+                            0b10000000,
+                            0b11100000,
+                            0b10100000,
+                            0b11100000,
+                            // 7
+                            0b11110000,
+                            0b00010000,
+                            0b00100000,
+                            0b01000000,
+                            0b01000000,
+                            // 8
+                            0b11110000,
+                            0b10010000,
+                            0b11110000,
+                            0b10010000,
+                            0b11110000,
+                            // 9
+                            0b11110000,
+                            0b10010000,
+                            0b11110000,
+                            0b00010000,
+                            0b11110000,
+                            // A
+                            0b11110000,
+                            0b10010000,
+                            0b11110000,
+                            0b10010000,
+                            0b10010000,
+                            // B
+                            0b11100000,
+                            0b10000000,
+                            0b11100000,
+                            0b10010000,
+                            0b11100000,
+                            // C
+                            0b11110000,
+                            0b10000000,
+                            0b10000000,
+                            0b10000000,
+                            0b11110000,
+                            // D
+                            0b11100000,
+                            0b10010000,
+                            0b10010000,
+                            0b10010000,
+                            0b11100000,
+                            // E
+                            0b11110000,
+                            0b10000000,
+                            0b11110000,
+                            0b10000000,
+                            0b11110000,
+                            // F
+                            0b11110000,
+                            0b10000000,
+                            0b11110000,
+                            0b10000000,
+                            0b10000000];
+
 pub struct Cpu {
     // memory
     memory: [u8; MEMORY_SIZE as usize],
@@ -41,6 +146,17 @@ impl Cpu {
             sound_timer: 0,
             screen: [0; SCREEN_SIZE as usize]
         }
+    }
+
+    fn init(&mut self) {
+        // init fonts
+        for (x, line) in FONT_SPRITES.iter().enumerate() {
+            self.memory[(FONT_BASE + x as u8) as usize] = *line;
+        }
+
+        // pc/sp
+        self.program_counter = PROGRAM_COUNTER_START_ADDR;
+        self.stack_pointer = STACK_POINTER_START_ADDR as u8;
     }
 
     fn read(&self, address: u16) -> u8 {
@@ -89,22 +205,6 @@ impl Cpu {
 
     fn set_carry_flag(&mut self, value: u8) {
         self.registers[0x0F] = value;
-    }
-
-    fn write_to_screen(&mut self, x: u8, y:u8, values: Vec<u8>) {
-        // TODO wrap around
-        let pos = x * SCREEN_WIDTH + y / SCREEN_HEIGHT;
-        let prev = self.screen[pos as usize];
-        for (_i, val) in values.iter().enumerate() {
-            let cur = self.screen[pos as usize];
-            self.screen[pos as usize] = cur ^ val;
-        }
-
-        if prev != self.screen[pos as usize] {
-            self.set_carry_flag(1);
-        } else {
-            self.set_carry_flag(0);
-        }
     }
 
     fn emulate_cycle(&mut self) {
@@ -305,8 +405,6 @@ impl Cpu {
                     },
                     _ => panic!("unreachable")
                 }
-
-
             }
 
             // 9xy0 - SNE Vx, Vy
@@ -350,18 +448,34 @@ impl Cpu {
             0x0D => {
                 let index_x = instruction & 0x0F00 >> 4;
                 let index_y = instruction & 0x00F0 >> 2;
-                let bytes_to_read = instruction & 0x000F;
-
-                let mut sprite = Vec::new();
-                for x in 0..bytes_to_read {
-                    let address = self.i + x;
-                    sprite.push(self.memory[address as usize]);
-                }
-
+                let bytes_to_read = (instruction & 0x000F) as u8;
                 let x = self.get_register_value(index_x);
                 let y = self.get_register_value(index_y);
 
-                self.write_to_screen(x, y, sprite);
+                let mut cur_line: u8 = 0;
+                self.set_carry_flag(0);
+
+                for line in 0..bytes_to_read {
+                    // get current line of pixels at i + offset
+                    cur_line = self.memory[(self.i + line as u16) as usize];
+                    // iterate each bit in byte
+                    for bit in 0..8 {
+                        // check if current bit (pixel) is set, if it is we xor it with
+                        // existing
+                        if (cur_line & 0x80 >> bit) != 0 {
+                            // calculate index based on x/y coordinate and current line/bit
+
+                            let index = x + bit + ((y + line) * SCREEN_WIDTH);
+                            // set carry flag if pixel is flipped off (collision detection)
+                            if self.screen[index as usize] == 1 {
+                                self.set_carry_flag(1);
+                            }
+
+                            // xor pixel with newer value
+                            self.screen[index as usize] ^= 1;
+                        }
+                    }
+                }
             },
             0x0E => {
 
@@ -410,17 +524,27 @@ impl Cpu {
                     // Set I = I + Vx.
                     0x1E => {
                         let x = instruction & 0x0F00 >> 4;
+                        let x = self.registers[x as usize] as u16;
                         self.i = (Wrapping(self.i) + Wrapping(x)).0;
                     },
                     // Fx29 - LD F, Vx
                     // Set I = location of sprite for digit Vx.
                     0x29 => {
+                        let register = instruction & 0x0F00 >> 4;
+                        let register = self.registers[register as usize] as u16;
 
+                        self.i = (FONT_BASE as u16 + register * (5 as u16)) as u16;
                     },
                     // Fx33 - LD B, Vx
                     // Store BCD representation of Vx in memory locations I, I+1, and I+2.
                     0x33 => {
+                        let register = instruction & 0x0F00 >> 4;
+                        let register = self.get_register_value(register);
 
+                        let addr_base = self.i;
+                        self.memory[addr_base as usize] = (register / 100) as u8;
+                        self.memory[(addr_base + 1) as usize] = ((register / 10) % 10) as u8;
+                        self.memory[(addr_base + 2) as usize] = ((register % 100) % 10) as u8;
                     },
                     // Fx55 - LD [I], Vx
                     // Store registers V0 through Vx in memory starting at location I.
