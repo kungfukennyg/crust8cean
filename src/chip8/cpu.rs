@@ -221,7 +221,7 @@ impl Cpu {
         let mut screen = [0; SCREEN_SIZE as usize];
         for (i, x) in self.screen.iter().enumerate() {
             if *x != 0 {
-                screen[i] = 255;
+                screen[i] = 0xFFFF_FFFF;
             }
         }
 
