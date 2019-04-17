@@ -1,6 +1,6 @@
 use core::fmt;
 use rand::Rng;
-use minifb::{Key, WindowOptions, Window, KeyRepeat};
+use minifb::{Key, WindowOptions, Window, KeyRepeat, Scale};
 use std::num::Wrapping;
 use std::time::{Instant, Duration};
 use std::thread::Thread;
@@ -172,7 +172,12 @@ impl Cpu {
 
             window: Window::new("crust8cean - ESC to exit",
                                 SCREEN_WIDTH as usize, SCREEN_HEIGHT as usize,
-                                WindowOptions::default())
+                                WindowOptions {
+                                    borderless: false,
+                                    title: true,
+                                    resize: true,
+                                    scale: Scale::X8,
+                                })
                                         .unwrap_or_else(|e| { panic!("{}", e)}),
             last_cycle: Instant::now()
         }
@@ -187,12 +192,6 @@ impl Cpu {
         // init program
         let start_addr = self.program_counter;
         for (i, val) in program.iter().enumerate() {
-            if i == 270 {
-                println!("writing val {:x}", *val);
-            } else if i == 271 {
-                println!("writing val {:x}", *val)
-            }
-
             self.memory[(start_addr + i as u16) as usize] = *val;
         }
     }
@@ -339,7 +338,7 @@ impl Cpu {
             (opcode & 0x000F) as u8
         );
 
-        let nnn = (opcode & 0x0FFF);
+        let nnn = opcode & 0x0FFF;
         let kk = (opcode & 0x00FF) as u8;
         let x = nibbles.1 as usize;
         let y = nibbles.2 as usize;
