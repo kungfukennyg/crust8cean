@@ -144,6 +144,8 @@ pub struct Cpu {
 
     // input
     keys_pressed: [u8; 16],
+    awaiting_keypress: bool,
+    awaiting_keypress_register: usize,
 
     // window
     window: Window,
@@ -165,6 +167,8 @@ impl Cpu {
             sound_timer: 0,
             screen: [0; SCREEN_SIZE as usize],
             keys_pressed: [0; 16],
+            awaiting_keypress: false,
+            awaiting_keypress_register: 0,
 
             window: Window::new("crust8cean - ESC to exit",
                                 SCREEN_WIDTH as usize, SCREEN_HEIGHT as usize,
@@ -201,14 +205,61 @@ impl Cpu {
             return;
         }
 
-        // keyboard input
-        self.window.update();
+        self.window.get_keys_pressed(KeyRepeat::No).map(|keys| {
+            for key in keys {
+                let index = match key {
+                    Key::Key1 => 0,
+                    Key::Key2 => 1,
+                    Key::Key3 => 2,
+                    Key::Key4 => 3,
+                    Key::Q => 4,
+                    Key::W => 5,
+                    Key::E => 6,
+                    Key::R => 7,
+                    Key::A => 8,
+                    Key::S => 9,
+                    Key::D => 10,
+                    Key::F => 11,
+                    Key::Z => 12,
+                    Key::X => 13,
+                    Key::C => 14,
+                    Key::V => 15,
+                    // 16
+                    _ => self.keys_pressed.len() as u8
+                };
 
-        // run instruction
-        self.emulate_cycle();
+                if index != self.keys_pressed.len() as u8 {
+                    // value doesn't matter, just set key as pressed
+                    self.keys_pressed[index as usize] = 1;
+                    self.registers[self.awaiting_keypress_register] = index;
+                }
+            }
+        });
 
-        // graphics
-        self.render_screen();
+        // wait for key press
+        if self.awaiting_keypress {
+            for key in self.keys_pressed.iter() {
+                if *key > 0 {
+                    self.awaiting_keypress = false;
+                    self.registers[self.awaiting_keypress_register] = *key;
+                    break;
+                }
+            }
+        } else {
+            // decrement timers
+            if self.delay_timer > 0 {
+                self.delay_timer -= 1;
+            }
+            if self.sound_timer > 0 {
+                self.sound_timer -= 1;
+            }
+
+            // run instruction
+            self.emulate_cycle();
+
+            // graphics
+            self.render_screen();
+        }
 
         self.last_cycle = Instant::now();
         let elapsed = Instant::now().sub(now);
@@ -518,35 +569,8 @@ impl Cpu {
             // TODO implement wait
             (0x0F, _, _, 0x0A) => {
                 println!("LD V{} K", x);
-                self.window.get_keys_pressed(KeyRepeat::No).map(|keys| {
-                    for key in keys {
-                        let index = match key {
-                            Key::Key1 => 0,
-                            Key::Key2 => 1,
-                            Key::Key3 => 2,
-                            Key::Key4 => 3,
-                            Key::Q => 4,
-                            Key::W => 5,
-                            Key::E => 6,
-                            Key::R => 7,
-                            Key::A => 8,
-                            Key::S => 9,
-                            Key::D => 10,
-                            Key::F => 11,
-                            Key::Z => 12,
-                            Key::X => 13,
-                            Key::C => 14,
-                            Key::V => 15,
-                            _ => self.keys_pressed.len() as u8
-                        };
-
-                        if index != self.keys_pressed.len() as u8 {
-                            // value doesn't matter, just set key as pressed
-                            self.keys_pressed[index as usize] = 1;
-                            self.registers[x] = index;
-                        }
-                    }
-                });
+                self.awaiting_keypress = true;
+                self.awaiting_keypress_register = x;
             },
             // Fx15 - LD DT, Vx
             // Set delay timer = Vx.
