@@ -2,6 +2,7 @@ extern crate rand;
 extern crate minifb;
 
 mod chip8;
+mod tests;
 
 use chip8::cpu::Cpu;
 use std::env;
@@ -16,10 +17,12 @@ fn main() {
         .expect("rom not found");
 
     let mut cpu = Cpu::new();
-    println!("Hello, world! {:?}", cpu);
     cpu.init(rom);
 
     loop {
+        if !cpu.is_window_open() {
+            break;
+        }
         cpu.run();
     }
 }

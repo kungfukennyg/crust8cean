@@ -12,16 +12,16 @@ const SCREEN_WIDTH: u16 = 64;
 const SCREEN_HEIGHT: u16 = 32;
 const SCREEN_SIZE: u16 = SCREEN_WIDTH as u16 * SCREEN_HEIGHT as u16;
 
-const FONT_BASE: u8 = 0;
 // 5 bytes by 16 characters
-const FONT_SIZE: u8 = 5 * 16;
-const PROGRAM_COUNTER_START_ADDR: u16 = 0x200;
-const STACK_POINTER_START_ADDR: u16 = 0xFA0;
+pub const FONT_LEN: u8 = 5;
+pub const FONT_SIZE: u8 = FONT_LEN * 16;
+
+pub const PROGRAM_COUNTER_START_ADDR: u16 = 0x200;
 
 // 60 frames a second
 // TODO don't hardcode, configurable
 const TICK_DURATION: Duration = Duration::from_millis(
-    ((1 as f64 / 60 as f64) * 1000 as f64) as u64);
+    ((1 as f64 / 120 as f64) * 1000 as f64) as u64);
 
 // sprites
 const FONT_SPRITES: [u8; FONT_SIZE as usize] = [
@@ -141,6 +141,7 @@ pub struct Cpu {
 
     // screen memory
     screen: [u8; SCREEN_SIZE as usize],
+    redraw: bool,
 
     // input
     keys_pressed: [u8; 16],
@@ -152,6 +153,9 @@ pub struct Cpu {
 
     //
     last_cycle: Instant,
+
+    // interpreter specific
+    paused: bool,
 }
 
 impl Cpu {
@@ -162,31 +166,35 @@ impl Cpu {
             i: 0,
             program_counter: PROGRAM_COUNTER_START_ADDR,
             stack: [0; 16],
-            stack_pointer: STACK_POINTER_START_ADDR as u8,
+            stack_pointer: 0,
             delay_timer: 0,
             sound_timer: 0,
             screen: [0; SCREEN_SIZE as usize],
+            redraw: false,
             keys_pressed: [0; 16],
             awaiting_keypress: false,
             awaiting_keypress_register: 0,
 
-            window: Window::new("crust8cean - ESC to exit",
+            window: Window::new("crust8cean",
                                 SCREEN_WIDTH as usize, SCREEN_HEIGHT as usize,
                                 WindowOptions {
                                     borderless: false,
                                     title: true,
-                                    resize: true,
+                                    resize: false,
                                     scale: Scale::X8,
-                                })
-                                        .unwrap_or_else(|e| { panic!("{}", e)}),
-            last_cycle: Instant::now()
+                                }).unwrap_or_else(|e| {
+                                        println!("{}", e);
+                                        panic!("{}", e);
+            }),
+            last_cycle: Instant::now().sub(TICK_DURATION),
+            paused: false,
         }
     }
 
     pub fn init(&mut self, program: Vec<u8>) {
         // init fonts
         for (x, line) in FONT_SPRITES.iter().enumerate() {
-            self.memory[(FONT_BASE + x as u8) as usize] = *line;
+            self.memory[x] = *line;
         }
 
         // init program
@@ -204,9 +212,14 @@ impl Cpu {
             return;
         }
 
-        self.window.get_keys_pressed(KeyRepeat::No).map(|keys| {
+        if self.paused {
+            return;
+        }
+
+        self.window.get_keys_pressed(KeyRepeat::Yes).map(|keys| {
             for key in keys {
                 let index = match key {
+                    // chip-8 16 key keypad
                     Key::Key1 => 0,
                     Key::Key2 => 1,
                     Key::Key3 => 2,
@@ -223,11 +236,18 @@ impl Cpu {
                     Key::X => 13,
                     Key::C => 14,
                     Key::V => 15,
+
+                    // emulator-specific keys
+                    Key::Backspace => {
+                        println!("backspace");
+                        self.paused = !self.paused;
+                        17
+                    },
                     // 16
                     _ => self.keys_pressed.len() as u8
                 };
 
-                if index != self.keys_pressed.len() as u8 {
+                if index < self.keys_pressed.len() as u8 {
                     // value doesn't matter, just set key as pressed
                     self.keys_pressed[index as usize] = 1;
                     self.registers[self.awaiting_keypress_register] = index;
@@ -245,6 +265,15 @@ impl Cpu {
                 }
             }
         } else {
+            // run instruction
+            self.emulate_cycle();
+
+            // graphics
+            if self.redraw {
+                self.render_screen();
+                self.redraw = false;
+            }
+
             // decrement timers
             if self.delay_timer > 0 {
                 self.delay_timer -= 1;
@@ -252,12 +281,6 @@ impl Cpu {
             if self.sound_timer > 0 {
                 self.sound_timer -= 1;
             }
-
-            // run instruction
-            self.emulate_cycle();
-
-            // graphics
-            self.render_screen();
         }
 
         self.last_cycle = Instant::now();
@@ -265,6 +288,61 @@ impl Cpu {
         if elapsed.as_millis() < TICK_DURATION.as_millis() {
             thread::sleep(TICK_DURATION.sub(elapsed));
         }
+    }
+
+    pub fn is_window_open(&self) -> bool {
+        return self.window.is_open();
+    }
+
+    pub fn pop(&mut self) -> u16 {
+        self.stack_pointer -= 1;
+        let val = self.stack[self.stack_pointer as usize];
+        val
+    }
+
+    pub fn push(&mut self, value: u16) {
+        self.stack[self.stack_pointer as usize] = value;
+        self.stack_pointer += 1;
+    }
+
+    pub fn get_program_counter(&self) -> u16 {
+        self.program_counter
+    }
+
+    pub fn get_stack_pointer(&self) -> u8 {
+        self.stack_pointer
+    }
+
+    pub fn set_register(&mut self, register: usize, value: u8) {
+        self.registers[register] = value;
+    }
+
+    pub fn get_register(&self, register: usize) -> u8 {
+        self.registers[register]
+    }
+
+    pub fn get_address_register(&self) -> usize {
+        self.i
+    }
+
+    pub fn set_address_register(&mut self, value: usize) {
+        self.i = value;
+    }
+
+    pub fn get_delay_timer(&self) -> u8 {
+        self.delay_timer
+    }
+
+    pub fn set_delay_timer(&mut self, value: u8) {
+        self.delay_timer = value;
+    }
+
+    pub fn get_sound_timer(&self) -> u8 {
+        self.sound_timer
+    }
+
+    pub fn set_sound_timer(&mut self, value: u8) {
+        self.sound_timer = value;
     }
 
     fn render_screen(&mut self) {
@@ -305,17 +383,6 @@ impl Cpu {
         }
 
         self.memory[address as usize] = value;
-    }
-
-    fn pop(&mut self) -> u16 {
-        let val = self.stack[self.stack_pointer as usize];
-        self.stack_pointer -= 1;
-        val
-    }
-
-    fn push(&mut self, value: u16) {
-        self.stack[self.stack_pointer as usize] = value;
-        self.stack_pointer += 1;
     }
 
     fn set_carry_flag(&mut self, value: u8) {
@@ -359,6 +426,7 @@ impl Cpu {
                 for x in 0..SCREEN_SIZE {
                     self.screen[x as usize] = 0;
                 }
+                self.redraw = true;
             },
             // 00EE - RET
             // Return from a subroutine i.e. set pc to top of stack
@@ -383,7 +451,7 @@ impl Cpu {
             // 3xkk - SE Vx, byte
             // Skip next instruction if Vx == kk
             (0x03, _, _, _) => {
-                println!("SE V{}, {:x}", x, kk);
+                println!("SE V{:x}, {:x}", x, kk);
                 let x = self.registers[x];
                 if x == kk {
                     self.program_counter += 2;
@@ -392,7 +460,7 @@ impl Cpu {
             // 4xkk - SNE Vx, byte
             // Skip next instruction if Vx != kk
             (0x04, _, _, _) => {
-                println!("SNE V{}, {:x}", x, kk);
+                println!("SNE V{:x}, {:x}", x, kk);
                 let x = self.registers[x];
                 if x != kk {
                     self.program_counter += 2;
@@ -401,7 +469,7 @@ impl Cpu {
             // 5xy0 - SE Vx, Vy
             // Skip next instruction if Vx == Vy
             (0x05, _, _, 0x00) => {
-                println!("SE V{}, V{}", x, y);
+                println!("SE V{:x}, V{:x}", x, y);
                 let x = self.registers[x];
                 let y = self.registers[y];
 
@@ -413,68 +481,71 @@ impl Cpu {
             // Set Vx to value kk
             // Set Vx to value kk
             (0x06, _, _, _) => {
-                println!("LD V{}, {:x}", x, kk);
+                println!("LD V{:x}, {:x}", x, kk);
                 self.registers[x] = kk;
             },
             // 7xkk ADD Vx, byte
             // Set Vx = Vx + kk
             (0x07, _, _, _) => {
-                println!("ADD V{}, {:x}", x, kk);
-                self.registers[x] += kk;
+                println!("ADD V{:X}, {:x}", x, kk);
+                self.registers[x] = (Wrapping(self.registers[x]) + Wrapping(kk)).0;
             },
             // 8xy0 - LD Vx, Vy
             // Set Vx to value of Vy
             (0x08, _, _, 0x00) => {
-                println!("LD V{}, V{}", x, y);
+                println!("LD V{:x}, V{:x}", x, y);
                 let y = self.registers[y];
                 self.registers[x] = y;
             },
             // 8xy1 - OR Vx, Vy
             // Set Vx = Vx OR Vy.
             (0x08, _, _, 0x01) => {
-                println!("OR V{}, V{}", x, y);
+                println!("OR V{:x}, V{:x}", x, y);
                 self.registers[x] = self.registers[x] | self.registers[y];
             },
             // 8xy2 - AND Vx, Vy
             // Set Vx = Vx AND Vy.
             (0x08, _, _, 0x02) => {
-                println!("AND V{}, V{}", x, y);
+                println!("AND V{:x}, V{:x}", x, y);
                 self.registers[x] = self.registers[x] & self.registers[y];
             },
             // 8xy3 - XOR Vx, Vy
             // Set Vx = Vx XOR Vy.
             (0x08, _, _, 0x03) => {
-                println!("XOR V{}, V{}", x, y);
+                println!("XOR V{:x}, V{:x}", x, y);
                 self.registers[x] = self.registers[x] ^ self.registers[y];
             },
             // 8xy4 - ADD Vx, Vy
             // Set Vx = Vx + Vy, set VF = carry.
             (0x08, _, _, 0x04) => {
-                println!("ADD V{}, V{}", x, y);
+                println!("ADD V{:x}, V{:x}", x, y);
                 let ret = (Wrapping(self.registers[x] as u16)
                     + Wrapping(self.registers[y] as u16)).0;
                 self.set_carry_flag(if ret > 0xFF { 1 } else { 0 });
+                // lower 8 bits
+                self.registers[x] = (ret & 0x00FF) as u8;
             },
             // 8xy5 - SUB Vx, Vy
             // Set Vx = Vx - Vy, set VF = NOT borrow.
             (0x08, _, _, 0x05) => {
-                println!("SUB V{}, V{}", x, y);
+                println!("SUB V{:x}, V{:X}", x, y);
                 let x_val = self.registers[x];
                 let y_val = self.registers[y];
+                println!("{} - {} = {}", x_val, y_val, x_val.wrapping_sub(y_val));
                 self.set_carry_flag(if x_val > y_val { 1 } else { 0 });
                 self.registers[x] = x_val.wrapping_sub(y_val);
             },
             // 8xy6 - SHR Vx, Vy
             // Set Vx = Vx SHR 1.
             (0x08, _, _, 0x06) => {
-                println!("SHR V{}, V{}", x, y);
+                println!("SHR V{:x}, V{:x}", x, y);
                 self.set_carry_flag(self.registers[x] & 0x1);
                 self.registers[x] >>= 1;
             },
             // 8xy7 - SUBN Vx, Vy
             // Set Vx = Vy - Vx, set VF = NOT borrow.
             (0x08, _, _, 0x07) => {
-                println!("SUBN V{}, V{}", x, y);
+                println!("SUBN V{:x}, V{:x}", x, y);
                 let x_val = self.registers[x];
                 let y_val = self.registers[y];
                 self.set_carry_flag(if y_val > x_val { 1 } else { 0 });
@@ -483,14 +554,14 @@ impl Cpu {
             // 8xyE - SHL Vx, Vy
             // Set Vx = Vx SHL 1.
             (0x08, _, _, 0x0E) => {
-                println!("SHL V{}, V{}", x, y);
+                println!("SHL V{:x}, V{:x}", x, y);
                 self.set_carry_flag((self.registers[x] & 0b10000000) >> 7);
                 self.registers[x] <<= 1;
             },
             // 9xy0 - SNE Vx, Vy
             // Skip next instruction if Vx != Vy
             (0x09, _, _, 0x00) => {
-                println!("SNE V{}, V{}", x, y);
+                println!("SNE V{:x}, V{:x}", x, y);
                 if self.registers[x] != self.registers[y] {
                     self.program_counter += 2;
                 }
@@ -510,39 +581,51 @@ impl Cpu {
             // Cxkk - RND Vx, byte
             // Set Vx = random byte (0-255) AND kk
             (0x0C, _, _, _) => {
-                println!("RND V{}, rng", x);
+                println!("RND V{:x}, rng", x);
                 let rng = rand::thread_rng().gen_range(0, 256) as u8;
                 self.registers[x] = rng & kk;
             },
-            // Dxyz - DRW Vx, Vy, nibble
+            // Dxyn - DRW Vx, Vy, nibble
             // Display n-byte sprite starting at memory location I at (Vx, Vy), set VF = collision
             (0x0D, _, _, _) => {
-                println!("DXYN V{}, V{} {}", x, y, z);
-                let bytes_to_read = z;
-                let x = self.registers[x];
-                let y = self.registers[y];
+                println!("DXYN V{:x}, V{:x} {}", x, y, z);
+                let sprite_height = z;
+                let x = self.registers[x] as usize;
+                let y = self.registers[y] as usize;
 
                 self.set_carry_flag(0);
-                for line in 0..bytes_to_read {
-                    // get current line of pixels at i + offset
-                    let cur_line = self.memory[self.i + line];
+                for height in 0..sprite_height {
+                    // get current sprite stored in i + offset by fx29
+                    let cur_line = self.memory[self.i + height];
                     // iterate each bit in byte
                     for bit in 0..8 {
                         // check if current bit (pixel) is set, if it is we xor it with
                         // existing
-                        let pos_x = ((x + bit as u8) as u16) % SCREEN_WIDTH;
-                        let pos_y = ((y + line as u8) as u16) % SCREEN_HEIGHT;
-                        let pos = (pos_x + (pos_y * SCREEN_WIDTH)) as usize;
-                        let color = (self.memory[self.i + line] >> (7 - bit)) & 1;
-                        self.registers[0x0f] |= color & self.screen[pos];
-                        self.screen[pos] ^= color;
+//                        if cur_line & (0x80 >> bit) != 0 {
+//                            let pos = (x + bit + ((y + line) * SCREEN_WIDTH as usize) % 0x800);
+//                            if self.screen[pos] == 1 {
+//                                self.screen[pos] ^= 1;
+//                            }
+//                        }
+                        if cur_line & (0x80 >> bit) != 0 {
+                            let pos_x = (x + bit) as u16 % SCREEN_WIDTH;
+                            let pos_y = (y + height) as u16 % SCREEN_HEIGHT;
+                            let pos = (pos_x + (pos_y * SCREEN_WIDTH)) as usize;
+                            if self.screen[pos] == 1 {
+                                self.registers[0x0f] = 1;
+                            }
+                            self.screen[pos] ^= 1;
+                        }
                     }
+                }
+                if self.registers[0x0f] > 0 {
+                    self.redraw = true;
                 }
             },
             // Ex9E - SKP Vx
             // Skip next instruction if key with the value of Vx is pressed.
             (0x0E, _, 0x09, 0x0E) => {
-                println!("SKP V{}", x);
+                println!("SKP V{:x}", x);
                 let x = self.registers[x];
                 if self.keys_pressed[x as usize] != 0 {
                     self.program_counter += 2;
@@ -551,7 +634,7 @@ impl Cpu {
             // ExA1 - SKNP Vx
             // Skip next instruction if key with the value of Vx is not pressed.
             (0x0E, _, 0x0A, 0x01) => {
-                println!("SKNP V{}", x);
+                println!("SKNP V{:x}", x);
                 let x = self.registers[x];
                 if self.keys_pressed[x as usize] == 0 {
                     self.program_counter += 2;
@@ -560,12 +643,11 @@ impl Cpu {
             // Fx07 - LD Vx, DT
             // Set Vx = delay timer value.
             (0x0F, _, _, 0x07) => {
-                println!("LD V{} DT", x);
+                println!("LD V{:x} DT", x);
                 self.registers[x] = self.delay_timer;
             },
             // Fx0A - LD Vx, K
             // Wait for a key press, store the value of the key in Vx.
-            // TODO implement wait
             (0x0F, _, _, 0x0A) => {
                 println!("LD V{} K", x);
                 self.awaiting_keypress = true;
@@ -574,43 +656,42 @@ impl Cpu {
             // Fx15 - LD DT, Vx
             // Set delay timer = Vx.
             (0x0F, _, 0x01, 0x05) => {
-                println!("LD DT V{}", x);
+                println!("LD DT V{:x}", x);
                 self.delay_timer = self.registers[x]
             },
             // Fx18 - LD ST, Vx
             // Set sound timer = Vx.
             (0x0F, _, 0x01, 0x08) => {
-                println!("LD ST V{}", x);
+                println!("LD ST V{:x}", x);
                 self.sound_timer = self.registers[x];
             },
             // Fx1E - ADD I, Vx
             // Set I = I + Vx.
             (0x0F, _, 0x01, 0x0E) => {
-                println!("ADD I V{}", x);
+                println!("ADD I V{:x}", x);
                 self.i += self.registers[x] as usize;
                 self.set_carry_flag(if self.i > 0x0F00 { 1 } else { 0 });
             },
             // Fx29 - LD F, Vx
             // Set I = location of sprite for digit Vx.
             (0x0F, _, 0x02, 0x09) => {
-                println!("LD F V{}", x);
-                self.i = (FONT_BASE as u16 + (self.registers[x] * 5) as u16) as usize;
+                println!("LD F V{:x}", x);
+                self.i = (self.registers[x] as usize) * FONT_LEN as usize;
             },
             // Fx33 - LD B, Vx
             // Store BCD representation of Vx in memory locations I, I+1, and I+2.
             (0x0F, _, 0x03, 0x03) => {
-                println!("LD B V{}", x);
+                println!("LD B V{:x}", x);
                 let x = self.registers[x];
-                let addr_base = self.i as usize;
 
-                self.memory[addr_base] = (x / 100) as u8;
-                self.memory[(addr_base + 1)] = ((x / 10) % 10) as u8;
-                self.memory[(addr_base + 2)] = ((x % 100) % 10) as u8;
+                self.memory[self.i] = x / 100;
+                self.memory[(self.i + 1)] = (x % 100) / 10;
+                self.memory[(self.i + 2)] = x % 10;
             },
             // Fx55 - LD [I], Vx
             // Store registers V0 through Vx in memory starting at location I.
             (0x0F, _, 0x05, 0x05) => {
-                println!("LD [I] V{}", x);
+                println!("LD [I] V{:x}", x);
                 for i in 0..x + 1 {
                     let val = self.registers[i];
                     self.memory[self.i + i] = val;
@@ -619,7 +700,7 @@ impl Cpu {
             // Fx65 - LD Vx, [I]
             // Read registers V0 through Vx from memory starting at location I.
             (0x0F, _, 0x06, 0x05) => {
-                println!("LD V{} [I]", x);
+                println!("LD V{:x} [I]", x);
                 for i in 0..x + 1 {
                     self.registers[i] = self.memory[self.i + i];
                 }
@@ -634,12 +715,7 @@ impl Cpu {
                  self.registers[8], self.registers[9], self.registers[10], self.registers[11],
                  self.registers[12], self.registers[13], self.registers[14], self.registers[15]);
         println!("I: {:x}", self.i);
+        println!("SP: {:x}", self.stack_pointer);
         println!();
-    }
-}
-
-impl fmt::Debug for Cpu {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "TODO cpu fmt")
     }
 }
