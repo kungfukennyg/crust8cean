@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::chip8::cpu::{Cpu, PROGRAM_COUNTER_START_ADDR, FONT_SIZE};
+    use crate::chip8::cpu::{Cpu, PROGRAM_COUNTER_START_ADDR, FONT_ARRAY_SIZE};
 
     #[test]
     fn test_ret() {
@@ -291,7 +291,7 @@ mod tests {
         cpu.set_register(0, 10);
         cpu.run();
 
-        assert_eq!(cpu.get_address_register(), (10 * FONT_SIZE as u16) as usize);
+        assert_eq!(cpu.get_address_register(), 10 * FONT_ARRAY_SIZE);
     }
 
     fn init(program: Vec<u8>) -> Cpu {

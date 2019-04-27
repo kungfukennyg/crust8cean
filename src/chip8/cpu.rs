@@ -10,19 +10,22 @@ const SCREEN_WIDTH: u16 = 64;
 const SCREEN_HEIGHT: u16 = 32;
 const SCREEN_SIZE: u16 = SCREEN_WIDTH as u16 * SCREEN_HEIGHT as u16;
 
-// 5 bytes by 16 characters
-pub const FONT_LEN: u8 = 5;
-pub const FONT_SIZE: u8 = FONT_LEN * 16;
+
 
 pub const PROGRAM_COUNTER_START_ADDR: u16 = 0x200;
 
-// 60 frames a second
-// TODO don't hardcode, configurable
-const TICK_DURATION: Duration = Duration::from_millis(
+// 60hz, needed for sound/delay timer
+const SOUND_DELAY_TICK_RATE: Duration = Duration::from_millis(
     ((1 as f64 / 120 as f64) * 1000 as f64) as u64);
+// this length seems to work for other emulators :shrug:
+const MAIN_TICK_RATE: Duration = Duration::from_millis(2);
 
 // sprites
-const FONT_SPRITES: [u8; FONT_SIZE as usize] = [
+pub const BYTES_PER_CHARACTER: u8 = 5;
+pub const NUM_FONT_CHARACTERS: u8 = 16;
+pub const FONT_ARRAY_SIZE: usize = (BYTES_PER_CHARACTER * NUM_FONT_CHARACTERS) as usize;
+
+const FONT_SPRITES: [u8; FONT_ARRAY_SIZE] = [
                             // 0
                             0b11110000,
                             0b10010000,
@@ -153,7 +156,7 @@ pub struct Cpu {
     last_cycle: Instant,
 
     // interpreter specific
-    paused: bool,
+    dead: bool,
 }
 
 impl Cpu {
@@ -184,27 +187,33 @@ impl Cpu {
                                         println!("{}", e);
                                         panic!("{}", e);
             }),
-            last_cycle: Instant::now().sub(TICK_DURATION),
-            paused: false,
+            last_cycle: Instant::now().sub(MAIN_TICK_RATE),
+            dead: false,
         };
 
         // init fonts
         for (x, line) in FONT_SPRITES.iter().enumerate() {
             cpu.memory[x] = *line;
         }
+        println!("Initialized {} font sprites", FONT_ARRAY_SIZE);
 
         // init program
-        let start_addr = cpu.program_counter;
+        let start_addr = cpu.program_counter as usize;
         for (i, val) in program.iter().enumerate() {
-            cpu.memory[(start_addr + i as u16) as usize] = *val;
+            cpu.write(start_addr + i, *val);
         }
+        println!("Read program of {} bytes into memory", program.len());
 
         cpu
     }
 
     pub fn run(&mut self) {
-        if self.paused {
+        if self.dead {
             return;
+        }
+
+        if !self.window.is_open() {
+            self.die();
         }
 
         // TODO clean up
@@ -261,25 +270,23 @@ impl Cpu {
                 self.render_screen();
                 self.redraw = false;
             }
+        }
 
-            // decrement timers
+        let now = Instant::now();
+        if now.duration_since(self.last_cycle).as_millis() >= SOUND_DELAY_TICK_RATE.as_millis() {
+        // decrement on 60hz timer
             if self.delay_timer > 0 {
                 self.delay_timer -= 1;
             }
             if self.sound_timer > 0 {
                 self.sound_timer -= 1;
+                // TODO play sound when 0 is reached
             }
+
+            self.last_cycle = Instant::now();
         }
 
-        self.last_cycle = Instant::now();
-        let elapsed = Instant::now().sub(now);
-        if elapsed.as_millis() < TICK_DURATION.as_millis() {
-            thread::sleep(TICK_DURATION.sub(elapsed));
-        }
-    }
-
-    pub fn is_window_open(&self) -> bool {
-        return self.window.is_open();
+        thread::sleep(MAIN_TICK_RATE);
     }
 
     pub fn pop(&mut self) -> u16 {
@@ -326,51 +333,15 @@ impl Cpu {
         self.stack_pointer += 1;
     }
 
-    pub fn get_program_counter(&self) -> u16 {
-        self.program_counter
-    }
-
-    pub fn get_stack_pointer(&self) -> u8 {
-        self.stack_pointer
-    }
-
-    pub fn set_register(&mut self, register: usize, value: u8) {
-        self.registers[register] = value;
-    }
-
-    pub fn get_register(&self, register: usize) -> u8 {
-        self.registers[register]
-    }
-
-    pub fn get_address_register(&self) -> usize {
-        self.i
-    }
-
-    pub fn set_address_register(&mut self, value: usize) {
-        self.i = value;
-    }
-
-    pub fn get_delay_timer(&self) -> u8 {
-        self.delay_timer
-    }
-
-    pub fn set_delay_timer(&mut self, value: u8) {
-        self.delay_timer = value;
-    }
-
-    pub fn get_sound_timer(&self) -> u8 {
-        self.sound_timer
-    }
-
-    pub fn set_sound_timer(&mut self, value: u8) {
-        self.sound_timer = value;
+    pub fn is_running(&self) -> bool {
+        !self.dead
     }
 
     fn render_screen(&mut self) {
         let mut screen = [0; SCREEN_SIZE as usize];
         for (i, x) in self.screen.iter().enumerate() {
             if *x != 0 {
-                screen[i] = 0xFFFF_FFFF;
+                screen[i] = 0x0000_AAAA;
             }
         }
 
@@ -392,18 +363,16 @@ impl Cpu {
         ((low as u16) << 8) | (high as u16)
     }
 
-    fn read_word_increment_pc(&mut self, address: u16) -> u16 {
-        let word = self.read_word(address);
-        self.program_counter += 2;
-        word
-    }
-
-    fn write(&mut self, address: u16, value: u8) {
-        if address > self.memory.len() as u16 {
+    fn write(&mut self, address: usize, value: u8) {
+        if address > self.memory.len() as usize {
             panic!("write at {:x} out of bounds", address);
         }
+        self.memory[address] = value;
+    }
 
-        self.memory[address as usize] = value;
+    /// shuts down the emulator
+    fn die(&mut self) {
+        self.dead = true;
     }
 
     fn set_carry_flag(&mut self, value: u8) {
@@ -459,7 +428,14 @@ impl Cpu {
             // Jump to address nnn
             (0x01, _, _, _) => {
                 println!("JMP {:x}", nnn);
+                println!("{:b}", ((0x01 << 12) as u16));
+                println!("{:b}", ((0x01 << 12) as u16 & (nnn as u16)));
+                // check for infinite jump loop
+                if self.read_word(nnn) == opcode {
+                    self.die();
+                }
                 self.program_counter = nnn;
+
             },
             // 2nnn - CALL addr
             // Call subroutine at nnn
@@ -697,7 +673,7 @@ impl Cpu {
             // Set I = location of sprite for digit Vx.
             (0x0F, _, 0x02, 0x09) => {
                 println!("LD F V{:x}", x);
-                self.i = (self.registers[x] as usize) * FONT_LEN as usize;
+                self.i = (self.registers[x] as usize) * BYTES_PER_CHARACTER as usize;
             },
             // Fx33 - LD B, Vx
             // Store BCD representation of Vx in memory locations I, I+1, and I+2.

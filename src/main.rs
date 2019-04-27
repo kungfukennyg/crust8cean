@@ -5,11 +5,12 @@ mod chip8;
 mod tests;
 
 use chip8::cpu::Cpu;
-use std::env;
+use std::{env, thread};
 use std::io::Read;
 use std::io::Result;
 use std::fs::File;
 use std::path::Path;
+use std::time::Duration;
 
 fn main() {
     let rom_path = env::args().skip(1).next().expect("Failed to find rom file");
@@ -17,13 +18,18 @@ fn main() {
         .expect("rom not found");
 
     let mut cpu = Cpu::new(&rom);
+    thread::sleep(Duration::from_millis(3000));
 
     loop {
-        if !cpu.is_window_open() {
+        if !cpu.is_running() {
             break;
         }
         cpu.run();
     }
+
+    println!();
+    println!("Program finished!");
+    // TODO print some stats?
 }
 
 fn read_rom(r: &mut Read) -> Result<Vec<u8>> {
