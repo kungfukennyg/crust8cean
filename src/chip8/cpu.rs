@@ -1,9 +1,7 @@
-use core::fmt;
 use rand::Rng;
 use minifb::{Key, WindowOptions, Window, KeyRepeat, Scale};
 use std::num::Wrapping;
 use std::time::{Instant, Duration};
-use std::thread::Thread;
 use std::thread;
 use std::ops::Sub;
 
@@ -159,8 +157,8 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    pub fn new() -> Self {
-        Cpu {
+    pub fn new(program: &Vec<u8>) -> Self {
+        let mut cpu = Cpu {
             memory: [0; MEMORY_SIZE as usize],
             registers: [0; 16],
             i: 0,

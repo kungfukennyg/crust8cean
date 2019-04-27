@@ -16,8 +16,7 @@ fn main() {
     let rom = read_rom(&mut File::open(&Path::new(&rom_path)).unwrap())
         .expect("rom not found");
 
-    let mut cpu = Cpu::new();
-    cpu.init(rom);
+    let mut cpu = Cpu::new(&rom);
 
     loop {
         if !cpu.is_window_open() {
