@@ -144,7 +144,7 @@ pub struct Cpu {
     redraw: bool,
 
     // input
-    keys_pressed: [u8; 16],
+    keys_pressed: [bool; 16],
     awaiting_keypress: bool,
     awaiting_keypress_register: usize,
 
@@ -171,7 +171,7 @@ impl Cpu {
             sound_timer: 0,
             screen: [0; SCREEN_SIZE as usize],
             redraw: false,
-            keys_pressed: [0; 16],
+            keys_pressed: [false; 16],
             awaiting_keypress: false,
             awaiting_keypress_register: 0,
 
@@ -188,79 +188,69 @@ impl Cpu {
             }),
             last_cycle: Instant::now().sub(TICK_DURATION),
             paused: false,
-        }
-    }
+        };
 
-    pub fn init(&mut self, program: Vec<u8>) {
         // init fonts
         for (x, line) in FONT_SPRITES.iter().enumerate() {
-            self.memory[x] = *line;
+            cpu.memory[x] = *line;
         }
 
         // init program
-        let start_addr = self.program_counter;
+        let start_addr = cpu.program_counter;
         for (i, val) in program.iter().enumerate() {
-            self.memory[(start_addr + i as u16) as usize] = *val;
+            cpu.memory[(start_addr + i as u16) as usize] = *val;
         }
+
+        cpu
     }
 
     pub fn run(&mut self) {
-        let now = Instant::now();
-        let last_cycle = now.duration_since(self.last_cycle);
-        if last_cycle.as_millis() < TICK_DURATION.as_millis() {
-            thread::sleep(TICK_DURATION.sub(last_cycle));
-            return;
-        }
-
         if self.paused {
             return;
         }
 
-        self.window.get_keys_pressed(KeyRepeat::Yes).map(|keys| {
-            for key in keys {
-                let index = match key {
-                    // chip-8 16 key keypad
-                    Key::Key1 => 0,
-                    Key::Key2 => 1,
-                    Key::Key3 => 2,
-                    Key::Key4 => 3,
-                    Key::Q => 4,
-                    Key::W => 5,
-                    Key::E => 6,
-                    Key::R => 7,
-                    Key::A => 8,
-                    Key::S => 9,
-                    Key::D => 10,
-                    Key::F => 11,
-                    Key::Z => 12,
-                    Key::X => 13,
-                    Key::C => 14,
-                    Key::V => 15,
-
-                    // emulator-specific keys
-                    Key::Backspace => {
-                        println!("backspace");
-                        self.paused = !self.paused;
-                        17
-                    },
-                    // 16
-                    _ => self.keys_pressed.len() as u8
-                };
-
-                if index < self.keys_pressed.len() as u8 {
-                    // value doesn't matter, just set key as pressed
-                    self.keys_pressed[index as usize] = 1;
-                    self.registers[self.awaiting_keypress_register] = index;
-                }
-            }
+        // TODO clean up
+        let keys_pressed: Option<Vec<Option<i32>>> = self.window.get_keys_pressed(KeyRepeat::Yes)
+            .map(|keys| {
+                keys.into_iter().map(|key| {
+                    let key_pressed: Option<i32> = match key {
+                        // chip-8 16 key keypad
+                        Key::Key1 => Some(0),
+                        Key::Key2 => Some(1),
+                        Key::Key3 => Some(2),
+                        Key::Key4 => Some(3),
+                        Key::Q => Some(4),
+                        Key::W => Some(5),
+                        Key::E => Some(6),
+                        Key::R => Some(7),
+                        Key::A => Some(8),
+                        Key::S => Some(9),
+                        Key::D => Some(10),
+                        Key::F => Some(11),
+                        Key::Z => Some(12),
+                        Key::X => Some(13),
+                        Key::C => Some(14),
+                        Key::V => Some(15),
+                        _ => None
+                    };
+                    key_pressed
+                }).collect::<Vec<Option<i32>>>()
         });
+
+        if keys_pressed.is_some() {
+            let keys_pressed = keys_pressed.unwrap();
+            for (i, key) in self.keys_pressed.iter_mut().enumerate() {
+                let pressed = keys_pressed.contains(&Some(i as i32));
+                *key = pressed;
+            }
+        }
 
         // wait for key press
         if self.awaiting_keypress {
-            for key in self.keys_pressed.iter() {
-                if *key > 0 {
+            for (i, key) in self.keys_pressed.iter_mut().enumerate() {
+                if *key {
                     self.awaiting_keypress = false;
-                    self.registers[self.awaiting_keypress_register] = *key;
+                    self.registers[self.awaiting_keypress_register] = i as u8;
                     break;
                 }
             }
@@ -298,6 +288,39 @@ impl Cpu {
         self.stack_pointer -= 1;
         let val = self.stack[self.stack_pointer as usize];
         val
+    }
+
+    pub fn get_keys_pressed(&self) -> Vec<Key> {
+        let mut keys = Vec::new();
+        for (i, key) in self.keys_pressed.iter().enumerate() {
+            if *key {
+                let pressed = match i {
+                    0 => Some(Key::Key1),
+                    1 => Some(Key::Key2),
+                    2 => Some(Key::Key3),
+                    3 => Some(Key::Key4),
+                    4 => Some(Key::Q),
+                    5 => Some(Key::W),
+                    6 => Some(Key::E),
+                    7 => Some(Key::R),
+                    8 => Some(Key::A),
+                    9 => Some(Key::S),
+                    10 => Some(Key::D),
+                    11 => Some(Key::F),
+                    12 => Some(Key::Z),
+                    13 => Some(Key::X),
+                    14 => Some(Key::C),
+                    15 => Some(Key::V),
+                    _ => None
+                };
+
+                if pressed.is_some() {
+                    keys.push(pressed.unwrap());
+                }
+            }
+        }
+
+        keys
     }
 
     pub fn push(&mut self, value: u16) {
@@ -627,7 +650,7 @@ impl Cpu {
             (0x0E, _, 0x09, 0x0E) => {
                 println!("SKP V{:x}", x);
                 let x = self.registers[x];
-                if self.keys_pressed[x as usize] != 0 {
+                if self.keys_pressed[x as usize] {
                     self.program_counter += 2;
                 }
             },
@@ -636,7 +659,7 @@ impl Cpu {
             (0x0E, _, 0x0A, 0x01) => {
                 println!("SKNP V{:x}", x);
                 let x = self.registers[x];
-                if self.keys_pressed[x as usize] == 0 {
+                if !self.keys_pressed[x as usize] {
                     self.program_counter += 2;
                 }
             }
@@ -716,6 +739,8 @@ impl Cpu {
                  self.registers[12], self.registers[13], self.registers[14], self.registers[15]);
         println!("I: {:x}", self.i);
         println!("SP: {:x}", self.stack_pointer);
+        println!("---Keys Pressed---");
+        println!("{:?}", self.get_keys_pressed());
         println!();
     }
 }
