@@ -15,8 +15,11 @@ Public domain roms can be found [here](https://github.com/dmatlack/chip8/tree/ma
 - Scale graphics up, at the moment it renders at exactly the CHIP-8's resolution, 64x32 ✔️
 - Finish keyboard input ✔️
 - implement sound/delay timers ✔️
-- Log all the things! better debug logging, display state of memory, graphics memory, sound/delay timer states
+- Log all the things! better debug logging, display state of memory, graphics memory, sound/delay timer states ✔️
 - toy with rendering methods/filters ala VBA (visual boy advance)
 - implement sound when sound timer == 0
 - make more things configurable (fps?, render mode?)
 - add menus at top of window
+- separate non-chip8 logic into distinct modules
+- log to a file
+- record stats (# of instructions executed, most expensive operations, etc.)
