@@ -4,13 +4,12 @@ use std::num::Wrapping;
 use std::time::{Instant, Duration};
 use std::thread;
 use std::ops::Sub;
+use crate::modules::display::{MiniFbDisplay, SCREEN_SIZE};
+use core::borrow::{BorrowMut, Borrow};
 
 const MEMORY_SIZE: u16 = 4096;
 const SCREEN_WIDTH: u16 = 64;
 const SCREEN_HEIGHT: u16 = 32;
-const SCREEN_SIZE: u16 = SCREEN_WIDTH as u16 * SCREEN_HEIGHT as u16;
-
-
 
 pub const PROGRAM_COUNTER_START_ADDR: u16 = 0x200;
 
@@ -140,9 +139,8 @@ pub struct Cpu {
     delay_timer: u8,
     sound_timer: u8,
 
-    // screen memory
-    screen: [u8; SCREEN_SIZE as usize],
-    redraw: bool,
+    // display
+    display: MiniFbDisplay,
 
     // input
     keys_pressed: [bool; 16],
@@ -152,11 +150,12 @@ pub struct Cpu {
     // window
     window: Window,
 
-    //
-    last_cycle: Instant,
 
     // interpreter specific
     dead: bool,
+    last_cycle: Instant,
+    total_cycles: u64,
+
 }
 
 impl Cpu {
@@ -170,13 +169,12 @@ impl Cpu {
             stack_pointer: 0,
             delay_timer: 0,
             sound_timer: 0,
-            screen: [0; SCREEN_SIZE as usize],
-            redraw: false,
+            display: MiniFbDisplay::new(),
             keys_pressed: [false; 16],
             awaiting_keypress: false,
             awaiting_keypress_register: 0,
 
-            window: Window::new("crust8cean",
+            window: Window::new("crust8cean - ESC to exit",
                                 SCREEN_WIDTH as usize, SCREEN_HEIGHT as usize,
                                 WindowOptions {
                                     borderless: false,
@@ -188,6 +186,7 @@ impl Cpu {
                                         panic!("{}", e);
             }),
             last_cycle: Instant::now().sub(MAIN_TICK_RATE),
+            total_cycles: 0,
             dead: false,
         };
 
@@ -238,6 +237,11 @@ impl Cpu {
                         Key::X => Some(13),
                         Key::C => Some(14),
                         Key::V => Some(15),
+                        // exit
+                        Key::Escape => {
+                            self.die();
+                            None
+                        }
                         _ => None
                     };
                     key_pressed
@@ -266,10 +270,7 @@ impl Cpu {
             self.emulate_cycle();
 
             // graphics
-            if self.redraw {
-                self.render_screen();
-                self.redraw = false;
-            }
+            self.display.render(&mut self.window);
         }
 
         let now = Instant::now();
@@ -286,6 +287,7 @@ impl Cpu {
             self.last_cycle = Instant::now();
         }
 
+        self.total_cycles += 1;
         thread::sleep(MAIN_TICK_RATE);
     }
 
@@ -337,15 +339,12 @@ impl Cpu {
         !self.dead
     }
 
-    fn render_screen(&mut self) {
-        let mut screen = [0; SCREEN_SIZE as usize];
-        for (i, x) in self.screen.iter().enumerate() {
-            if *x != 0 {
-                screen[i] = 0x0000_AAAA;
-            }
-        }
+    pub fn get_total_cycles(&self) -> u64 {
+        self.total_cycles
+    }
 
-        self.window.update_with_buffer(&screen).unwrap();
+    pub fn get_times_screen_rendered(&self) -> u64 {
+        self.display.get_times_rendered()
     }
 
     fn read(&self, address: u16) -> u8 {
@@ -413,10 +412,7 @@ impl Cpu {
             // Clear display
             (0x00, 0x00, 0x0E, 0x00) => {
                 println!("CLS");
-                for x in 0..SCREEN_SIZE {
-                    self.screen[x as usize] = 0;
-                }
-                self.redraw = true;
+                self.display.clear();
             },
             // 00EE - RET
             // Return from a subroutine i.e. set pc to top of stack
@@ -591,32 +587,30 @@ impl Cpu {
                 let y = self.registers[y] as usize;
 
                 self.set_carry_flag(0);
-                for height in 0..sprite_height {
-                    // get current sprite stored in i + offset by fx29
-                    let cur_line = self.memory[self.i + height];
-                    // iterate each bit in byte
-                    for bit in 0..8 {
-                        // check if current bit (pixel) is set, if it is we xor it with
-                        // existing
-//                        if cur_line & (0x80 >> bit) != 0 {
-//                            let pos = (x + bit + ((y + line) * SCREEN_WIDTH as usize) % 0x800);
-//                            if self.screen[pos] == 1 {
-//                                self.screen[pos] ^= 1;
-//                            }
-//                        }
-                        if cur_line & (0x80 >> bit) != 0 {
-                            let pos_x = (x + bit) as u16 % SCREEN_WIDTH;
-                            let pos_y = (y + height) as u16 % SCREEN_HEIGHT;
-                            let pos = (pos_x + (pos_y * SCREEN_WIDTH)) as usize;
-                            if self.screen[pos] == 1 {
-                                self.registers[0x0f] = 1;
+                let mut collision = false;
+                {
+                    for height in 0..sprite_height {
+                        // get current sprite stored in i + offset (by instr fx29)
+                        let cur_line = self.memory[self.i + height];
+                        // iterate each bit in byte
+                        for bit in 0..8 {
+                            // check if current bit (pixel) is set, if it is we xor it with existing
+                            if cur_line & (0x80 >> bit) != 0 {
+                                let pos_x = (x + bit) as u16 % SCREEN_WIDTH;
+                                let pos_y = (y + height) as u16 % SCREEN_HEIGHT;
+                                let pos = (pos_x + (pos_y * SCREEN_WIDTH)) as usize;
+                                if self.display.read(pos) == 1 {
+                                    collision = true;
+                                }
+                                self.display.write(pos, self.display.read(pos) ^ 1);
                             }
-                            self.screen[pos] ^= 1;
                         }
                     }
                 }
-                if self.registers[0x0f] > 0 {
-                    self.redraw = true;
+
+                if collision {
+                    self.set_carry_flag(1);
+                    self.display.set_redraw(true);
                 }
             },
             // Ex9E - SKP Vx

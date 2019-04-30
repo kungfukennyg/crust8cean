@@ -3,6 +3,7 @@ extern crate minifb;
 
 mod chip8;
 mod tests;
+mod modules;
 
 use chip8::cpu::Cpu;
 use std::{env, thread};
@@ -18,6 +19,7 @@ fn main() {
         .expect("rom not found");
 
     let mut cpu = Cpu::new(&rom);
+    println!("crust8cean starting...");
     thread::sleep(Duration::from_millis(3000));
 
     loop {
@@ -30,6 +32,10 @@ fn main() {
     println!();
     println!("Program finished!");
     // TODO print some stats?
+
+    println!();
+    println!("Total cycles emulated: {}", cpu.get_total_cycles());
+    println!("Times screen drawn: {}", cpu.get_times_screen_rendered());
 }
 
 fn read_rom(r: &mut Read) -> Result<Vec<u8>> {
