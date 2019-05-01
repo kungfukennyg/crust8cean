@@ -71,8 +71,8 @@ impl Cpu {
                                 WindowOptions {
                                     borderless: false,
                                     title: true,
-                                    resize: false,
-                                    scale: Scale::X8,
+                                    resize: true,
+                                    scale: Scale::FitScreen,
                                 }).unwrap_or_else(|e| {
                                         println!("{}", e);
                                         panic!("{}", e);
