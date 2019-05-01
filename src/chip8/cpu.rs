@@ -24,18 +24,18 @@ pub struct Cpu {
     // memory
     memory: [u8; MEMORY_SIZE as usize],
     // registers (V0-VF)
-    registers: [u8; 16],
-    i: usize, // address register
+    pub registers: [u8; 16],
+    pub i: usize, // address register
 
-    program_counter: u16,
+    pub program_counter: u16,
 
     // stack
-    stack: [u16; 16],
-    stack_pointer: u8,
+    pub stack: [u16; 16],
+    pub stack_pointer: u8,
 
     // timers
-    delay_timer: u8,
-    sound_timer: u8,
+    pub delay_timer: u8,
+    pub sound_timer: u8,
 
     // display
     display: MiniFbDisplay,
@@ -78,7 +78,7 @@ impl Cpu {
                                         println!("{}", e);
                                         panic!("{}", e);
             }),
-            last_cycle: Instant::now().sub(MAIN_TICK_RATE),
+            last_cycle: Instant::now().sub(SOUND_DELAY_TICK_RATE),
             total_cycles: 0,
             dead: false,
         };

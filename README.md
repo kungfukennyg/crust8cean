@@ -23,6 +23,12 @@ Install [MSYS2](http://www.msys2.org/) according to the instructions. Be sure to
 Then finally, run 
 ```cargo build --release```
 
+# Tests
+Run tests with ```cargo test -- --nocapture --test-threads=1```
+
+This will constrain the tests to 1 thread (as minifb has issues with windows created across threads) and 
+print output to stdout. Supress output by removing `--nocapture``
+
 # Usage
 
 After cloning and building this repo run:
@@ -60,7 +66,7 @@ Emulator specific keys:
 - implement sound/delay timers ✔️
 - Log all the things! better debug logging, display state of memory, graphics memory, sound/delay timer states ✔️
 - toy with rendering methods/filters ala VBA (visual boy advance)
-- implement sound when sound timer == 0
+- implement sound when sound timer == 0 ✔️
 - make more things configurable (fps?, render mode?)
 - add menus at top of window
 - separate non-chip8 logic into distinct modules ✔️
