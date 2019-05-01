@@ -1,11 +1,11 @@
 use rand::Rng;
-use minifb::{Key, WindowOptions, Window, KeyRepeat, Scale};
+use minifb::{WindowOptions, Window, Scale};
 use std::num::Wrapping;
 use std::time::{Instant, Duration};
 use std::thread;
 use std::ops::Sub;
-use crate::modules::display::{MiniFbDisplay, SCREEN_SIZE};
-use core::borrow::{BorrowMut, Borrow};
+use crate::modules::display::{MiniFbDisplay, FONT_ARRAY_SIZE, FONT_SPRITES, BYTES_PER_CHARACTER};
+use crate::modules::input::Keymap;
 
 const MEMORY_SIZE: u16 = 4096;
 const SCREEN_WIDTH: u16 = 64;
@@ -18,109 +18,6 @@ const SOUND_DELAY_TICK_RATE: Duration = Duration::from_millis(
     ((1 as f64 / 120 as f64) * 1000 as f64) as u64);
 // this length seems to work for other emulators :shrug:
 const MAIN_TICK_RATE: Duration = Duration::from_millis(2);
-
-// sprites
-pub const BYTES_PER_CHARACTER: u8 = 5;
-pub const NUM_FONT_CHARACTERS: u8 = 16;
-pub const FONT_ARRAY_SIZE: usize = (BYTES_PER_CHARACTER * NUM_FONT_CHARACTERS) as usize;
-
-const FONT_SPRITES: [u8; FONT_ARRAY_SIZE] = [
-                            // 0
-                            0b11110000,
-                            0b10010000,
-                            0b10010000,
-                            0b10010000,
-                            0b11110000,
-                            // 1
-                            0b00100000,
-                            0b01100000,
-                            0b00100000,
-                            0b00100000,
-                            0b01110000,
-                            // 2
-                            0b11110000,
-                            0b00010000,
-                            0b11110000,
-                            0b10000000,
-                            0b11110000,
-                            // 3
-                            0b11110000,
-                            0b00010000,
-                            0b11110000,
-                            0b00010000,
-                            0b11110000,
-                            // 4
-                            0b10100000,
-                            0b10100000,
-                            0b11100000,
-                            0b00100000,
-                            0b00100000,
-                            // 5
-                            0b11110000,
-                            0b10000000,
-                            0b11110000,
-                            0b00010000,
-                            0b11110000,
-                            // 6
-                            0b11110000,
-                            0b10000000,
-                            0b11110000,
-                            0b10010000,
-                            0b11110000,
-                            // 7
-                            0b11110000,
-                            0b00010000,
-                            0b00100000,
-                            0b01000000,
-                            0b01000000,
-                            // 8
-                            0b11110000,
-                            0b10010000,
-                            0b11110000,
-                            0b10010000,
-                            0b11110000,
-                            // 9
-                            0b11110000,
-                            0b10010000,
-                            0b11110000,
-                            0b00010000,
-                            0b11110000,
-                            // A
-                            0b11110000,
-                            0b10010000,
-                            0b11110000,
-                            0b10010000,
-                            0b10010000,
-                            // B
-                            0b11100000,
-                            0b10000000,
-                            0b11100000,
-                            0b10010000,
-                            0b11100000,
-                            // C
-                            0b11110000,
-                            0b10000000,
-                            0b10000000,
-                            0b10000000,
-                            0b11110000,
-                            // D
-                            0b11100000,
-                            0b10010000,
-                            0b10010000,
-                            0b10010000,
-                            0b11100000,
-                            // E
-                            0b11110000,
-                            0b10000000,
-                            0b11110000,
-                            0b10000000,
-                            0b11110000,
-                            // F
-                            0b11110000,
-                            0b10000000,
-                            0b11110000,
-                            0b10000000,
-                            0b10000000];
 
 pub struct Cpu {
     // memory
@@ -143,13 +40,10 @@ pub struct Cpu {
     display: MiniFbDisplay,
 
     // input
-    keys_pressed: [bool; 16],
-    awaiting_keypress: bool,
-    awaiting_keypress_register: usize,
+    keypad: Keymap,
 
     // window
     window: Window,
-
 
     // interpreter specific
     dead: bool,
@@ -170,9 +64,7 @@ impl Cpu {
             delay_timer: 0,
             sound_timer: 0,
             display: MiniFbDisplay::new(),
-            keys_pressed: [false; 16],
-            awaiting_keypress: false,
-            awaiting_keypress_register: 0,
+            keypad: Keymap::new(),
 
             window: Window::new("crust8cean - ESC to exit",
                                 SCREEN_WIDTH as usize, SCREEN_HEIGHT as usize,
@@ -215,55 +107,14 @@ impl Cpu {
             self.die();
         }
 
-        // TODO clean up
-        let keys_pressed: Option<Vec<Option<i32>>> = self.window.get_keys_pressed(KeyRepeat::Yes)
-            .map(|keys| {
-                keys.into_iter().map(|key| {
-                    let key_pressed: Option<i32> = match key {
-                        // chip-8 16 key keypad
-                        Key::Key1 => Some(0),
-                        Key::Key2 => Some(1),
-                        Key::Key3 => Some(2),
-                        Key::Key4 => Some(3),
-                        Key::Q => Some(4),
-                        Key::W => Some(5),
-                        Key::E => Some(6),
-                        Key::R => Some(7),
-                        Key::A => Some(8),
-                        Key::S => Some(9),
-                        Key::D => Some(10),
-                        Key::F => Some(11),
-                        Key::Z => Some(12),
-                        Key::X => Some(13),
-                        Key::C => Some(14),
-                        Key::V => Some(15),
-                        // exit
-                        Key::Escape => {
-                            self.die();
-                            None
-                        }
-                        _ => None
-                    };
-                    key_pressed
-                }).collect::<Vec<Option<i32>>>()
-        });
-
-        if keys_pressed.is_some() {
-            let keys_pressed = keys_pressed.unwrap();
-            for (i, key) in self.keys_pressed.iter_mut().enumerate() {
-                let pressed = keys_pressed.contains(&Some(i as i32));
-                *key = pressed;
-            }
-        }
+        self.keypad.update(&mut self.display, &self.window);
 
         // wait for key press
-        if self.awaiting_keypress {
-            for (i, key) in self.keys_pressed.iter_mut().enumerate() {
-                if *key {
-                    self.awaiting_keypress = false;
-                    self.registers[self.awaiting_keypress_register] = i as u8;
-                    break;
-                }
+        if self.keypad.is_awaiting_keypress() {
+            let key_pressed = self.keypad.await_keypress();
+            match key_pressed {
+                Some(key) => self.registers[self.keypad.get_awaiting_keypress_register()] = key,
+                None => ()
             }
         } else {
             // run instruction
@@ -295,39 +146,6 @@ impl Cpu {
         self.stack_pointer -= 1;
         let val = self.stack[self.stack_pointer as usize];
         val
-    }
-
-    pub fn get_keys_pressed(&self) -> Vec<Key> {
-        let mut keys = Vec::new();
-        for (i, key) in self.keys_pressed.iter().enumerate() {
-            if *key {
-                let pressed = match i {
-                    0 => Some(Key::Key1),
-                    1 => Some(Key::Key2),
-                    2 => Some(Key::Key3),
-                    3 => Some(Key::Key4),
-                    4 => Some(Key::Q),
-                    5 => Some(Key::W),
-                    6 => Some(Key::E),
-                    7 => Some(Key::R),
-                    8 => Some(Key::A),
-                    9 => Some(Key::S),
-                    10 => Some(Key::D),
-                    11 => Some(Key::F),
-                    12 => Some(Key::Z),
-                    13 => Some(Key::X),
-                    14 => Some(Key::C),
-                    15 => Some(Key::V),
-                    _ => None
-                };
-
-                if pressed.is_some() {
-                    keys.push(pressed.unwrap());
-                }
-            }
-        }
-
-        keys
     }
 
     pub fn push(&mut self, value: u16) {
@@ -617,8 +435,8 @@ impl Cpu {
             // Skip next instruction if key with the value of Vx is pressed.
             (0x0E, _, 0x09, 0x0E) => {
                 println!("SKP V{:x}", x);
-                let x = self.registers[x];
-                if self.keys_pressed[x as usize] {
+                let x = self.registers[x] as usize;
+                if self.keypad.is_key_pressed(x) {
                     self.program_counter += 2;
                 }
             },
@@ -626,8 +444,8 @@ impl Cpu {
             // Skip next instruction if key with the value of Vx is not pressed.
             (0x0E, _, 0x0A, 0x01) => {
                 println!("SKNP V{:x}", x);
-                let x = self.registers[x];
-                if !self.keys_pressed[x as usize] {
+                let x = self.registers[x] as usize;
+                if !self.keypad.is_key_pressed(x) {
                     self.program_counter += 2;
                 }
             }
@@ -641,8 +459,8 @@ impl Cpu {
             // Wait for a key press, store the value of the key in Vx.
             (0x0F, _, _, 0x0A) => {
                 println!("LD V{} K", x);
-                self.awaiting_keypress = true;
-                self.awaiting_keypress_register = x;
+                self.keypad.set_awaiting_keypress(true);
+                self.keypad.set_awaiting_keypress_register(x);
             },
             // Fx15 - LD DT, Vx
             // Set delay timer = Vx.
@@ -708,7 +526,7 @@ impl Cpu {
         println!("I: {:x}", self.i);
         println!("SP: {:x}", self.stack_pointer);
         println!("---Keys Pressed---");
-        println!("{:?}", self.get_keys_pressed());
+        println!("{:?}", self.keypad.map_keys_pressed_to_real_values());
         println!();
     }
 }
