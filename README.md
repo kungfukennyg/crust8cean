@@ -1,9 +1,11 @@
 ## crust8cean
 
+![Screenshot](/screenshot_1.png?raw=true "The emulator running Brix'")
+
 This is yet another™ CHIP-8 emulator built in Rust. I built this to practice both my Rust skills and my low-ish level programming skills. 
 
 # Building
-crust8cean uses the ears crate to play audio. You need to install OpenAL and libsndfile on your system
+crust8cean uses the [ears](https://crates.io/crates/ears) crate to play audio. You need to install OpenAL and libsndfile on your system
 
 Linux (Debian and Ubuntu):
 ```sudo apt install libopenal-dev libsndfile1-dev```
@@ -28,7 +30,7 @@ After cloning and building this repo run:
 ./target/crust8cean /path/to/rom
 ```
 
-Public domain roms can be found [here](https://github.com/dmatlack/chip8/tree/master/roms/games).
+Public domain roms can be found in the roms/
 
 # Controls
 
@@ -36,17 +38,17 @@ Controls are rom specific. Note that keypresses are likely to be dropped occasio
 
 Keymap layout: 
 
-1	2	3	C
-4	5	6	D
-7	8	9	E
-A	0	B	F
+1	2	3	C<br>
+4	5	6	D<br>
+7	8	9	E<br>
+A	0	B	F<br>
 
 Physical keyboard layout:
 
-1	2	3	4
-Q	W	E	R
-A	S	D	F
-Z	X	C	V
+1	2	3	4<br>
+Q	W	E	R<br>
+A	S	D	F<br>
+Z	X	C	V<br>
 
 Emulator specific keys:
 - ESC -> exit the emulator
