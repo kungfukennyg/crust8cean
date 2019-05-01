@@ -29,6 +29,9 @@ Q	W	E	R
 A	S	D	F
 Z	X	C	V
 
+Emulator specific keys:
+- ESC -> exit the emulator
+- P -> swap the color of pixels, 12 colors total
 
 ## TODO
 - Scale graphics up, at the moment it renders at exactly the CHIP-8's resolution, 64x32 ✔️

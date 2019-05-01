@@ -1,5 +1,4 @@
 use minifb::{Window, Key, KeyRepeat};
-use crate::modules::display::MiniFbDisplay;
 
 const KEYBOARD_SIZE: usize = 16;
 
@@ -7,22 +6,26 @@ pub struct Keymap {
     keys_pressed: [bool; KEYBOARD_SIZE],
     awaiting_keypress: bool,
     awaiting_keypress_register: usize,
+
+    // interpreter specific
+    interpreter_keys_pressed: Vec<Key>,
 }
 
 impl Keymap {
     pub fn new() -> Self {
         Keymap {
             keys_pressed: [false; KEYBOARD_SIZE],
+            interpreter_keys_pressed: Vec::new(),
             awaiting_keypress: false,
             awaiting_keypress_register: 0,
         }
     }
 
-    pub fn update(&mut self, display: &mut MiniFbDisplay, window: &Window) {
+    pub fn update(&mut self, window: &Window) {
         let keys_pressed: Option<Vec<Option<i32>>> = window.get_keys_pressed(KeyRepeat::Yes)
             .map(|keys| {
                 keys.into_iter().map(|key| {
-                    let key_pressed: Option<i32> = match key {
+                    let key_pressed = match key {
                         // chip-8 16 key keypad
                         // 1 2 3 4
                         // Q W E R
@@ -46,11 +49,10 @@ impl Keymap {
                         Key::V => Some(15),
 
                         // interpreter specific keys
-                        // cycle color
-                        Key::P => {
-                            display.change_color();
+                        Key::P | Key::Escape => {
+                            self.interpreter_keys_pressed.push(key);
                             None
-                        }
+                        },
                         _ => None
                     };
                     key_pressed
@@ -72,6 +74,14 @@ impl Keymap {
 
     pub fn set_awaiting_keypress(&mut self, value: bool) {
         self.awaiting_keypress = value;
+    }
+
+    pub fn get_interpreter_keys_pressed(&self) -> &Vec<Key> {
+        &self.interpreter_keys_pressed
+    }
+
+    pub fn clear_interpreter_keys_pressed(&mut self) {
+        self.interpreter_keys_pressed.clear();
     }
 
     pub fn set_awaiting_keypress_register(&mut self, value: usize) {

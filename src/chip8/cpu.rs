@@ -1,5 +1,5 @@
 use rand::Rng;
-use minifb::{WindowOptions, Window, Scale};
+use minifb::{WindowOptions, Window, Scale, Key};
 use std::num::Wrapping;
 use std::time::{Instant, Duration};
 use std::thread;
@@ -107,7 +107,24 @@ impl Cpu {
             self.die();
         }
 
-        self.keypad.update(&mut self.display, &self.window);
+        self.keypad.update(&self.window);
+
+        // handle interpreter specific keys
+        let interpreter_specific_keys = self.keypad.get_interpreter_keys_pressed().clone();
+        for key in interpreter_specific_keys.iter() {
+            match key {
+                // palette swap
+                Key::P => {
+                    self.display.change_color();
+                }
+                // exit
+                Key::Escape => {
+                    self.die();
+                },
+                _ => ()
+            }
+        }
+        self.keypad.clear_interpreter_keys_pressed();
 
         // wait for key press
         if self.keypad.is_awaiting_keypress() {
