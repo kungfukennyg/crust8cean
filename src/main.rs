@@ -1,5 +1,6 @@
 extern crate rand;
 extern crate minifb;
+extern crate ears;
 
 mod chip8;
 mod tests;

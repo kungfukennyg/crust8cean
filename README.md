@@ -2,11 +2,30 @@
 
 This is yet another™ CHIP-8 emulator built in Rust. I built this to practice both my Rust skills and my low-ish level programming skills. 
 
+# Building
+crust8cean uses the ears crate to play audio. You need to install OpenAL and libsndfile on your system
+
+Linux (Debian and Ubuntu):
+```sudo apt install libopenal-dev libsndfile1-dev```
+
+Linux (Fedora):
+```sudo dnf install openal-soft-devel libsndfile-devel```
+
+Mac:
+```brew install openal-soft libsndfile```
+
+Windows:
+Install [MSYS2](http://www.msys2.org/) according to the instructions. Be sure to use the default installation folder (i.e. C:\msys32 or C:\msys64), otherwise compiling won't work. Then, run the following in the MSYS2 shell:
+```pacman -S mingw-w64-x86_64-libsndfile mingw-w64-x86_64-openal```
+
+Then finally, run 
+```cargo build --release```
+
 # Usage
 
-After cloning this repo run:
+After cloning and building this repo run:
 ```
-cargo build --release && ./target/crust8cean /path/to/rom
+./target/crust8cean /path/to/rom
 ```
 
 Public domain roms can be found [here](https://github.com/dmatlack/chip8/tree/master/roms/games).

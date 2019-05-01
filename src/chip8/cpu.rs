@@ -6,6 +6,7 @@ use std::thread;
 use std::ops::Sub;
 use crate::modules::display::{MiniFbDisplay, FONT_ARRAY_SIZE, FONT_SPRITES, BYTES_PER_CHARACTER};
 use crate::modules::input::Keymap;
+use crate::modules::audio;
 
 const MEMORY_SIZE: u16 = 4096;
 const SCREEN_WIDTH: u16 = 64;
@@ -95,6 +96,8 @@ impl Cpu {
         }
         println!("Read program of {} bytes into memory", program.len());
 
+        // init window, so we don't have to wait until a redraw is triggered
+        cpu.display.set_redraw(true);
         cpu
     }
 
@@ -149,7 +152,10 @@ impl Cpu {
             }
             if self.sound_timer > 0 {
                 self.sound_timer -= 1;
-                // TODO play sound when 0 is reached
+                // chip 8 doesn't play sound when sound timer is 1
+                if self.sound_timer > 1 {
+                    audio::play_tone();
+                }
             }
 
             self.last_cycle = Instant::now();
@@ -259,8 +265,6 @@ impl Cpu {
             // Jump to address nnn
             (0x01, _, _, _) => {
                 println!("JMP {:x}", nnn);
-                println!("{:b}", ((0x01 << 12) as u16));
-                println!("{:b}", ((0x01 << 12) as u16 & (nnn as u16)));
                 // check for infinite jump loop
                 if self.read_word(nnn) == opcode {
                     self.die();
@@ -359,7 +363,6 @@ impl Cpu {
                 println!("SUB V{:x}, V{:X}", x, y);
                 let x_val = self.registers[x];
                 let y_val = self.registers[y];
-                println!("{} - {} = {}", x_val, y_val, x_val.wrapping_sub(y_val));
                 self.set_carry_flag(if x_val > y_val { 1 } else { 0 });
                 self.registers[x] = x_val.wrapping_sub(y_val);
             },
@@ -542,6 +545,8 @@ impl Cpu {
                  self.registers[12], self.registers[13], self.registers[14], self.registers[15]);
         println!("I: {:x}", self.i);
         println!("SP: {:x}", self.stack_pointer);
+        println!("DT: {}", self.delay_timer);
+        println!("ST: {}", self.sound_timer);
         println!("---Keys Pressed---");
         println!("{:?}", self.keypad.map_keys_pressed_to_real_values());
         println!();
