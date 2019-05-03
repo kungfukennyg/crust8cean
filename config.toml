@@ -1,0 +1,4 @@
+debug = true
+render_screen = false
+initial_color = 0xFFFFFFFF
+play_sound = true

@@ -143,7 +143,9 @@ impl Cpu {
             self.emulate_cycle();
 
             // graphics
-            self.display.render(&mut self.window);
+            if self.config.render_screen {
+                self.display.render(&mut self.window);
+            }
         }
 
         let now = Instant::now();
