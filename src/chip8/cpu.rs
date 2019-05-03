@@ -7,6 +7,7 @@ use std::ops::Sub;
 use crate::modules::display::{MiniFbDisplay, FONT_ARRAY_SIZE, FONT_SPRITES, BYTES_PER_CHARACTER};
 use crate::modules::input::Keymap;
 use crate::modules::audio;
+use crate::modules::config::Config;
 
 const MEMORY_SIZE: u16 = 4096;
 const SCREEN_WIDTH: u16 = 64;
@@ -50,11 +51,11 @@ pub struct Cpu {
     dead: bool,
     last_cycle: Instant,
     total_cycles: u64,
-
+    config: Config,
 }
 
 impl Cpu {
-    pub fn new(program: &Vec<u8>) -> Self {
+    pub fn new(program: &Vec<u8>, config: Config) -> Self {
         let mut cpu = Cpu {
             memory: [0; MEMORY_SIZE as usize],
             registers: [0; 16],
@@ -64,7 +65,7 @@ impl Cpu {
             stack_pointer: 0,
             delay_timer: 0,
             sound_timer: 0,
-            display: MiniFbDisplay::new(),
+            display: MiniFbDisplay::new(config.initial_color),
             keypad: Keymap::new(),
 
             window: Window::new("crust8cean - ESC to exit",
@@ -81,6 +82,7 @@ impl Cpu {
             last_cycle: Instant::now().sub(SOUND_DELAY_TICK_RATE),
             total_cycles: 0,
             dead: false,
+            config,
         };
 
         // init fonts
@@ -152,8 +154,7 @@ impl Cpu {
             }
             if self.sound_timer > 0 {
                 self.sound_timer -= 1;
-                // chip 8 doesn't play sound when sound timer is 1
-                if self.sound_timer > 1 {
+                if self.config.play_sound {
                     audio::play_tone();
                 }
             }
@@ -240,8 +241,6 @@ impl Cpu {
         let x = nibbles.1 as usize;
         let y = nibbles.2 as usize;
         let z = nibbles.3 as usize;
-        println!("program counter: {}", pc);
-        println!("opcode: {:x}", opcode);
         match nibbles {
             // 0nnn - SYS addr
             // Jump to routine at nnn
@@ -536,19 +535,21 @@ impl Cpu {
             },
             _ => panic!("Unrecognized nibbles ({:x}, {:x}, {:x}, {:x})", nibbles.0, nibbles.1, nibbles.2, nibbles.3)
         }
-        println!("---Registers---");
-        println!("V0: {:x}, V1: {:x}, V2: {:x}, V3: {:x}, V4: {:x}, V5: {:x}, V6: {:x}, V7: {:x}",
-                 self.registers[0], self.registers[1], self.registers[2], self.registers[3],
-                 self.registers[4], self.registers[5], self.registers[6], self.registers[7]);
-        println!("V8: {:x}, V9: {:x}, VA: {:x}, VB: {:x}, VC: {:x}, VD: {:x}, VE: {:x}, VF: {:x}",
-                 self.registers[8], self.registers[9], self.registers[10], self.registers[11],
-                 self.registers[12], self.registers[13], self.registers[14], self.registers[15]);
-        println!("I: {:x}", self.i);
-        println!("SP: {:x}", self.stack_pointer);
-        println!("DT: {}", self.delay_timer);
-        println!("ST: {}", self.sound_timer);
-        println!("---Keys Pressed---");
-        println!("{:?}", self.keypad.map_keys_pressed_to_real_values());
-        println!();
+        if self.config.debug {
+            println!("---Registers---");
+            println!("V0: {:x}, V1: {:x}, V2: {:x}, V3: {:x}, V4: {:x}, V5: {:x}, V6: {:x}, V7: {:x}",
+                     self.registers[0], self.registers[1], self.registers[2], self.registers[3],
+                     self.registers[4], self.registers[5], self.registers[6], self.registers[7]);
+            println!("V8: {:x}, V9: {:x}, VA: {:x}, VB: {:x}, VC: {:x}, VD: {:x}, VE: {:x}, VF: {:x}",
+                     self.registers[8], self.registers[9], self.registers[10], self.registers[11],
+                     self.registers[12], self.registers[13], self.registers[14], self.registers[15]);
+            println!("I: {:x}", self.i);
+            println!("SP: {:x}", self.stack_pointer);
+            println!("DT: {}", self.delay_timer);
+            println!("ST: {}", self.sound_timer);
+            println!("---Keys Pressed---");
+            println!("{:?}", self.keypad.map_keys_pressed_to_real_values());
+            println!();
+        }
     }
 }

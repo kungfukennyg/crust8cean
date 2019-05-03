@@ -67,7 +67,7 @@ Emulator specific keys:
 - Log all the things! better debug logging, display state of memory, graphics memory, sound/delay timer states ✔️
 - toy with rendering methods/filters ala VBA (visual boy advance)
 - implement sound when sound timer == 0 ✔️
-- make more things configurable (fps?, render mode?)
+- make more things configurable (fps?, render mode?) ✔️
 - add menus at top of window
 - separate non-chip8 logic into distinct modules ✔️
 - log to a file

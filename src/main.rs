@@ -1,6 +1,7 @@
 extern crate rand;
 extern crate minifb;
 extern crate ears;
+extern crate config;
 
 mod chip8;
 mod tests;
@@ -13,13 +14,16 @@ use std::io::Result;
 use std::fs::File;
 use std::path::Path;
 use std::time::Duration;
+use crate::modules::config::Config;
 
 fn main() {
-    let rom_path = env::args().skip(1).next().expect("Failed to find rom file");
+    let rom_path = env::args().skip(1).next().expect("Usage: ./crust8cean <path-to-rom>");
     let rom = read_rom(&mut File::open(&Path::new(&rom_path)).unwrap())
         .expect("rom not found");
 
-    let mut cpu = Cpu::new(&rom);
+    let config = Config::new("config");
+    println!("read config: {:?}", config);
+    let mut cpu = Cpu::new(&rom, config);
     println!("crust8cean starting...");
     thread::sleep(Duration::from_millis(3000));
 

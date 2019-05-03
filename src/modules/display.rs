@@ -146,9 +146,9 @@ pub struct MiniFbDisplay {
 }
 
 impl MiniFbDisplay {
-    pub fn new() -> Self {
+    pub fn new(initial_color: u32) -> Self {
         MiniFbDisplay {
-            color: COLORS[0],
+            color: initial_color,
             redraw: false,
             screen: [0; SCREEN_SIZE],
             times_rendered: 0,
